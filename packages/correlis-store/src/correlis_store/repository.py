@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from correlis_schema import EvidenceRef, Observation
 from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .errors import ImmutableRecordConflict
@@ -37,14 +38,21 @@ class ObservationRepository:
             session.close()
 
     def put(self, observation: Observation) -> WriteDisposition:
-        with self._session_scope() as session:
-            try:
-                disposition = self._put_with_session(session, observation)
-                session.commit()
-                return disposition
-            except Exception:
-                session.rollback()
-                raise
+        retry_after_integrity_error = False
+        while True:
+            with self._session_scope() as session:
+                try:
+                    disposition = self._put_with_session(session, observation)
+                    session.commit()
+                    return disposition
+                except IntegrityError:
+                    session.rollback()
+                    if retry_after_integrity_error:
+                        raise
+                    retry_after_integrity_error = True
+                except Exception:
+                    session.rollback()
+                    raise
 
     def _put_with_session(self, session: Session, observation: Observation) -> WriteDisposition:
         tenant_id = observation.tenant_id
