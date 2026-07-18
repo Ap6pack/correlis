@@ -2,7 +2,7 @@ PYTHON ?= python3
 VENV ?= .venv
 PIP := $(VENV)/bin/pip
 PY := $(VENV)/bin/python
-PYTHONPATH := packages/correlis-schema/src:packages/correlis-store/src:services/api/src
+PYTHONPATH := packages/correlis-schema/src:packages/correlis-ontology/src:packages/correlis-store/src:services/api/src
 
 -include .env
 
@@ -13,7 +13,7 @@ export CORRELIS_TEST_DATABASE_URL
 
 install:
 	$(PYTHON) -m venv $(VENV)
-	$(PIP) install -e packages/correlis-schema -e packages/correlis-store -e 'services/api[dev]'
+	$(PIP) install -e packages/correlis-schema -e packages/correlis-ontology -e packages/correlis-store -e 'services/api[dev]'
 
 test: test-unit
 

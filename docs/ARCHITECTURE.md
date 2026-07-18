@@ -16,6 +16,9 @@ Collectors
 Normalizer and validation boundary
       |
       v
+Versioned ontology registry
+      |
+      v
 Durable observation stream -----> Immutable evidence store
       |
       +-----> Entity projection
@@ -46,6 +49,13 @@ Defines the stable cross-service contracts:
 
 Source-specific data belongs in validated attributes or source adapters, not in
 new top-level fields added ad hoc.
+
+
+### Ontology registry
+
+The `correlis-ontology` package sits between normalization and projection. It is the shared semantic contract for collectors, deterministic rules, APIs, and UI views: which objects exist, how identity candidates are named, which relationships are valid, and which direction those relationships use. Views such as the graph, timeline, evidence inspector, and incident view are projections over this one model rather than separate data models.
+
+Operational actions are also defined by the ontology. An action records an attributable actor, target, evidence, and any required reason; converting an action creates a new analyst-action observation rather than rewriting historical facts. Future semantic investigation can use structured ontology queries. Natural-language assistance may later translate requests into safe structured queries, but it cannot create underlying truth or bypass ontology validation and evidence requirements.
 
 ### Ingest service
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 
+from correlis_ontology import CORE_ONTOLOGY, OntologyRegistry
 from correlis_schema import (
     AttackScene,
     EntityRef,
@@ -31,7 +32,13 @@ def relationship_id(
 
 
 class SceneBuilder:
-    def __init__(self, scene_id: str, tenant_id: str, title: str) -> None:
+    def __init__(
+        self,
+        scene_id: str,
+        tenant_id: str,
+        title: str,
+        ontology_registry: OntologyRegistry = CORE_ONTOLOGY,
+    ) -> None:
         now = datetime.min.replace(tzinfo=UTC)
         self.scene = AttackScene(
             id=scene_id,
@@ -41,6 +48,7 @@ class SceneBuilder:
             updated_at=now,
         )
         self._seen_observations: set[str] = set()
+        self._ontology_registry = ontology_registry
 
     def apply(self, observation: Observation) -> SceneDelta:
         if observation.id in self._seen_observations:
@@ -49,6 +57,7 @@ class SceneBuilder:
                 observation=observation,
                 state=self.scene.state,
             )
+        self._ontology_registry.validate_observation(observation)
         if observation.tenant_id != self.scene.tenant_id:
             raise ValueError("observation tenant does not match attack scene tenant")
 
@@ -88,6 +97,9 @@ class SceneBuilder:
     def _direct_relationship(self, observation: Observation) -> Relationship | None:
         if observation.relationship is None or observation.object is None:
             return None
+        self._ontology_registry.validate_edge(
+            observation.relationship, observation.subject, observation.object
+        )
         return Relationship(
             id=relationship_id(
                 observation.tenant_id,
@@ -191,6 +203,7 @@ class SceneBuilder:
         reason: str,
         extra_evidence: list[str] | None = None,
     ) -> Relationship:
+        self._ontology_registry.validate_edge(relation, source, target)
         evidence_refs = list(
             dict.fromkeys([*(extra_evidence or []), *[e.id for e in observation.evidence]])
         )
@@ -257,7 +270,11 @@ class SceneBuilder:
             self.scene.state = IncidentState.OBSERVED
 
 
-def build_scene(name: str, observations: list[Observation]) -> AttackScene:
+def build_scene(
+    name: str,
+    observations: list[Observation],
+    ontology_registry: OntologyRegistry = CORE_ONTOLOGY,
+) -> AttackScene:
     if not observations:
         raise ValueError("cannot build an attack scene without observations")
     tenant_id = observations[0].tenant_id
@@ -265,6 +282,7 @@ def build_scene(name: str, observations: list[Observation]) -> AttackScene:
         scene_id=f"scene:{name}",
         tenant_id=tenant_id,
         title=name.replace("-", " ").title(),
+        ontology_registry=ontology_registry,
     )
     for observation in observations:
         builder.apply(observation)

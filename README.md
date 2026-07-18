@@ -59,10 +59,17 @@ Then open:
 
 ```text
 packages/correlis-schema/   Stable cyber contracts
+packages/correlis-ontology/ Versioned object, relationship, and action semantics
 services/api/               Reference API and replay service
 scenarios/                  Reproducible attack scenarios
 docs/                       Public architecture and data-model documentation
 ```
+
+## Ontology-driven operational model
+
+Correlis uses one shared operational model for collectors, deterministic rules, APIs, and future UI views. The versioned core ontology documents entity types, identity candidates, valid directed relationship source and target types, and evidence-backed operational actions. Identity candidates describe future entity-resolution inputs; they do not automatically merge entities or replace explicit entity IDs.
+
+Operational actions are attributable to an actor and target, require evidence, and require reasons for sensitive decisions. Actions become new `analyst_action` observations so decisions are auditable facts rather than rewrites of historical records. The machine-readable contract is available from `GET /api/v1/ontology`.
 
 ## Development principles
 

@@ -49,6 +49,15 @@ include:
 Source IDs are not automatically canonical IDs. Entity resolution is a separate,
 auditable function.
 
+
+## Core ontology contracts
+
+The versioned core ontology defines identity candidates for each entity type. Examples include `hostname` and cloud instance attributes for assets, principal names for identities, process GUIDs for processes, sockets for network endpoints, CVEs for vulnerabilities, and content or host-path identifiers for files. These candidates are descriptive and machine-readable inputs for a future attributable entity-resolution projection; they do not automatically merge entities and are not required on every incoming `EntityRef`.
+
+Relationship types have explicit directed source and target constraints. For example, assets can have vulnerabilities, domains resolve to IP addresses, processes run on assets, and the attack source points toward exploited or compromised targets. Reverse edges are not inferred automatically. Future connectors must validate against the ontology rather than treating relationships as universally connectable.
+
+Operational-action contracts define the action actor, target, evidence, attributes, and optional or required reason. Every current action requires evidence and emits an observation. Sensitive actions such as confirming, rejecting, suppressing, requesting evidence, opening remediation, and recording containment decisions require a non-blank reason; owner assignment and evidence export may omit a reason. Recording an action is separate from applying any future state transition: actions become attributable analyst-action observations and do not by themselves mutate relationships, incidents, or entities.
+
 ## Evidence
 
 An evidence reference points to immutable source material and includes a SHA-256
@@ -110,7 +119,7 @@ An attack scene is a time-aware projection containing:
 - Relationships.
 - Ordered observations.
 - Incident state.
-- Analyst actions.
+- Analyst-action observations.
 - Summary and uncertainty.
 
 ## Incident state

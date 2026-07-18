@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
   "correlis-schema>=0.1.0",
   "correlis-store>=0.1.0",
+  "correlis-ontology>=0.1.0",
   "fastapi>=0.128,<1",
   "uvicorn[standard]>=0.48,<1",
 ]

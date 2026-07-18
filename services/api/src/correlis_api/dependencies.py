@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from correlis_ontology import OntologyRegistry
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from .scenarios import ScenarioRepository
+
+ONTOLOGY_NOT_CONFIGURED_DETAIL = {
+    "code": "ontology_not_configured",
+    "message": "Ontology registry is not configured.",
+}
 
 DATABASE_NOT_CONFIGURED_DETAIL = {
     "code": "database_not_configured",
@@ -15,6 +21,13 @@ DATABASE_NOT_CONFIGURED_DETAIL = {
 
 def get_scenario_repository(request: Request) -> ScenarioRepository:
     return request.app.state.scenario_repository
+
+
+def get_ontology_registry(request: Request) -> OntologyRegistry:
+    registry = getattr(request.app.state, "ontology_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail=ONTOLOGY_NOT_CONFIGURED_DETAIL)
+    return registry
 
 
 def get_database_session(request: Request) -> Iterator[Session]:
