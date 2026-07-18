@@ -1,88 +1,241 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from correlis_store import create_database_engine, create_session_factory
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from sqlalchemy.engine import Engine
 
 from . import __version__
+from .dependencies import get_scenario_repository
+from .health import check_database_connectivity, check_migration_state
 from .scenarios import ScenarioNotFoundError, ScenarioRepository
 from .scene import SceneBuilder, build_scene
-from .settings import settings
-
-app = FastAPI(
-    title="Correlis API",
-    version=__version__,
-    description="Reference attack-scene contract and replay service.",
-)
-repo = ScenarioRepository(settings.scenario_dir)
+from .settings import Settings
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "correlis-api", "version": __version__}
+class LiveHealthResponse(BaseModel):
+    status: str
+    service: str
+    version: str
 
 
-@app.get("/api/v1/scenarios")
-async def list_scenarios() -> dict[str, list[str]]:
-    return {"scenarios": repo.list()}
+class DatabaseHealthResponse(BaseModel):
+    status: str
+    code: str | None = None
 
 
-@app.get("/api/v1/scenarios/{name}/scene")
-async def get_scene(name: str):
-    try:
-        observations = repo.load(name)
-    except ScenarioNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="scenario not found") from exc
-    return build_scene(name, observations)
+class MigrationHealthResponse(BaseModel):
+    status: str
+    code: str | None = None
+    current: list[str] | None = None
+    expected: list[str] | None = None
 
 
-@app.websocket("/ws/scenarios/{name}/replay")
-async def replay_scenario(
-    websocket: WebSocket,
-    name: str,
-    speed: float = Query(default=1.0, ge=0.0, le=100.0),
-) -> None:
-    await websocket.accept()
-    try:
-        observations = repo.load(name)
-    except ScenarioNotFoundError:
-        await websocket.send_json({"type": "error", "detail": "scenario not found"})
-        await websocket.close(code=4404)
-        return
+class ReadinessChecks(BaseModel):
+    database: DatabaseHealthResponse
+    migrations: MigrationHealthResponse
 
-    if not observations:
-        await websocket.send_json({"type": "error", "detail": "scenario is empty"})
-        await websocket.close(code=4400)
-        return
 
-    builder = SceneBuilder(
-        scene_id=f"scene:{name}",
-        tenant_id=observations[0].tenant_id,
-        title=name.replace("-", " ").title(),
-    )
-    previous_time: datetime | None = None
+class ReadinessResponse(BaseModel):
+    status: str
+    service: str
+    version: str
+    checks: ReadinessChecks
 
-    try:
-        await websocket.send_json(
-            {
-                "type": "replay_started",
-                "scene_id": builder.scene.id,
-                "observation_count": len(observations),
-            }
-        )
-        for observation in observations:
-            if previous_time is not None and speed > 0:
-                delay = max(0.0, (observation.event_time - previous_time).total_seconds() / speed)
-                await asyncio.sleep(min(delay, 5.0))
-            delta = builder.apply(observation)
-            await websocket.send_json(
-                {"type": "scene_delta", "data": delta.model_dump(mode="json")}
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    scenario_repository: ScenarioRepository | None = None,
+    engine: Engine | None = None,
+) -> FastAPI:
+    resolved_settings = settings or Settings.from_env()
+    resolved_repository = scenario_repository or ScenarioRepository(resolved_settings.scenario_dir)
+    injected_engine = engine
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        application.state.settings = resolved_settings
+        application.state.scenario_repository = resolved_repository
+        application.state.database_engine = None
+        application.state.database_session_factory = None
+        application.state.owns_database_engine = False
+
+        if injected_engine is not None:
+            application.state.database_engine = injected_engine
+            application.state.owns_database_engine = False
+        elif resolved_settings.database_url:
+            application.state.database_engine = create_database_engine(
+                resolved_settings.database_url
             )
-            previous_time = observation.event_time
+            application.state.owns_database_engine = True
 
-        await websocket.send_json(
-            {"type": "replay_complete", "data": builder.scene.model_dump(mode="json")}
+        if application.state.database_engine is not None:
+            application.state.database_session_factory = create_session_factory(
+                application.state.database_engine
+            )
+
+        try:
+            yield
+        finally:
+            if (
+                getattr(application.state, "owns_database_engine", False)
+                and application.state.database_engine is not None
+            ):
+                application.state.database_engine.dispose()
+            application.state.database_session_factory = None
+            application.state.database_engine = None
+            application.state.owns_database_engine = False
+
+    api = FastAPI(
+        title="Correlis API",
+        version=__version__,
+        description="Reference attack-scene contract and replay service.",
+        lifespan=lifespan,
+    )
+    api.state.settings = resolved_settings
+    api.state.scenario_repository = resolved_repository
+    api.state.database_engine = injected_engine
+    api.state.database_session_factory = None
+    api.state.owns_database_engine = False
+
+    @api.get("/health", response_model=LiveHealthResponse)
+    async def health() -> LiveHealthResponse:
+        return LiveHealthResponse(status="ok", service="correlis-api", version=__version__)
+
+    @api.get("/health/live", response_model=LiveHealthResponse)
+    async def health_live() -> LiveHealthResponse:
+        return LiveHealthResponse(status="ok", service="correlis-api", version=__version__)
+
+    @api.get("/health/ready", response_model=ReadinessResponse)
+    async def health_ready(response: Response) -> ReadinessResponse:
+        database_engine = api.state.database_engine
+        if database_engine is None:
+            response.status_code = 503
+            return ReadinessResponse(
+                status="not_ready",
+                service="correlis-api",
+                version=__version__,
+                checks=ReadinessChecks(
+                    database=DatabaseHealthResponse(
+                        status="error", code="database_not_configured"
+                    ),
+                    migrations=MigrationHealthResponse(status="not_checked"),
+                ),
+            )
+
+        database_check = check_database_connectivity(database_engine)
+        if not database_check.ok:
+            response.status_code = 503
+            return ReadinessResponse(
+                status="not_ready",
+                service="correlis-api",
+                version=__version__,
+                checks=ReadinessChecks(
+                    database=DatabaseHealthResponse(status="error", code=database_check.code),
+                    migrations=MigrationHealthResponse(status="not_checked"),
+                ),
+            )
+
+        migration_check = check_migration_state(
+            database_engine, resolved_settings.alembic_config_path
         )
-    except WebSocketDisconnect:
-        return
+        migration_payload = MigrationHealthResponse(
+            status="ok" if migration_check.ok else "error",
+            code=None if migration_check.ok else migration_check.code,
+            current=list(migration_check.current),
+            expected=list(migration_check.expected),
+        )
+        ready = migration_check.ok
+        response.status_code = 200 if ready else 503
+        return ReadinessResponse(
+            status="ready" if ready else "not_ready",
+            service="correlis-api",
+            version=__version__,
+            checks=ReadinessChecks(
+                database=DatabaseHealthResponse(status="ok"),
+                migrations=migration_payload,
+            ),
+        )
+
+    @api.get("/api/v1/scenarios")
+    async def list_scenarios(
+        repository: Annotated[ScenarioRepository, Depends(get_scenario_repository)],
+    ) -> dict[str, list[str]]:
+        return {"scenarios": repository.list()}
+
+    @api.get("/api/v1/scenarios/{name}/scene")
+    async def get_scene(
+        name: str,
+        repository: Annotated[ScenarioRepository, Depends(get_scenario_repository)],
+    ):
+        try:
+            observations = repository.load(name)
+        except ScenarioNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="scenario not found") from exc
+        return build_scene(name, observations)
+
+    @api.websocket("/ws/scenarios/{name}/replay")
+    async def replay_scenario(
+        websocket: WebSocket,
+        name: str,
+        speed: float = Query(default=1.0, ge=0.0, le=100.0),
+    ) -> None:
+        await websocket.accept()
+        repository: ScenarioRepository = websocket.app.state.scenario_repository
+        try:
+            observations = repository.load(name)
+        except ScenarioNotFoundError:
+            await websocket.send_json({"type": "error", "detail": "scenario not found"})
+            await websocket.close(code=4404)
+            return
+
+        if not observations:
+            await websocket.send_json({"type": "error", "detail": "scenario is empty"})
+            await websocket.close(code=4400)
+            return
+
+        builder = SceneBuilder(
+            scene_id=f"scene:{name}",
+            tenant_id=observations[0].tenant_id,
+            title=name.replace("-", " ").title(),
+        )
+        previous_time: datetime | None = None
+
+        try:
+            await websocket.send_json(
+                {
+                    "type": "replay_started",
+                    "scene_id": builder.scene.id,
+                    "observation_count": len(observations),
+                }
+            )
+            for observation in observations:
+                if previous_time is not None and speed > 0:
+                    delay = max(
+                        0.0,
+                        (observation.event_time - previous_time).total_seconds() / speed,
+                    )
+                    await asyncio.sleep(min(delay, 5.0))
+                delta = builder.apply(observation)
+                await websocket.send_json(
+                    {"type": "scene_delta", "data": delta.model_dump(mode="json")}
+                )
+                previous_time = observation.event_time
+
+            await websocket.send_json(
+                {"type": "replay_complete", "data": builder.scene.model_dump(mode="json")}
+            )
+        except WebSocketDisconnect:
+            return
+
+    return api
+
+
+app = create_app()

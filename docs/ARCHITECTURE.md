@@ -136,3 +136,13 @@ They are scale decisions, not credibility signals.
 ## Durable observation store
 
 `correlis-store` is the initial implementation of the durable normalized-observation and evidence-reference repository. It persists canonical `correlis-schema` observation and evidence-reference payloads with tenant-qualified identifiers, immutable payload hashes, and observation-to-evidence associations. PostgreSQL migrations and repository behavior are tested in CI in addition to fast SQLite unit coverage. Immutable writes include single-retry resolution for expected concurrent uniqueness races: after rollback, the repository compares canonical payload hashes to return an idempotent existing write, reuse identical evidence, or raise an immutable-record conflict. Unexpected database integrity failures remain visible after the bounded retry. The API, replay service, projections, incidents, and raw evidence-content storage remain outside this persistence foundation.
+
+## API lifecycle and health
+
+`correlis-api` is constructed through an application factory that accepts explicit settings, a scenario repository, and an optional externally managed database engine. The ASGI module entry point remains available for Uvicorn, but importing it only builds the FastAPI object and does not open a database connection.
+
+Runtime resources are initialized through FastAPI lifespan management. The API stores settings, the file-backed scenario repository, any database engine, the SQLAlchemy session factory, and engine ownership metadata on application state. When the API creates an engine from configuration, it owns and disposes that engine during shutdown; injected engines remain externally managed.
+
+Database construction remains owned by `correlis-store`, while `correlis-api` owns HTTP lifecycle and health semantics. Future operational routes should use the per-request database-session dependency, which opens one synchronous SQLAlchemy session per dependency invocation and closes it without implicit commits. Scenario replay remains file-backed and does not use PostgreSQL.
+
+Liveness and readiness are separate. `/health` and `/health/live` only indicate that the API process is operating. `/health/ready` verifies database configuration, connectivity, and the current Alembic revision set against the repository heads. Readiness does not run migrations, create tables, or otherwise mutate schema; Alembic migrations remain an explicit deployment responsibility such as `make migrate`.
