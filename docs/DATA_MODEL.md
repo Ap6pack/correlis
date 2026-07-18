@@ -146,3 +146,11 @@ The incident has a final disposition and required evidence retention metadata.
    analyst-confirmation observation or deterministic evidence.
 6. Event time and ingest time are separate.
 7. Projection logic is idempotent by observation ID.
+
+## Persistence tables
+
+`observations` stores normalized canonical `Observation` records. Each row is tenant-qualified by `(tenant_id, observation_id)`, stores query fields such as event time, source, event class, severity, and confidence, and keeps the complete canonical observation JSON plus a deterministic SHA-256 payload hash.
+
+`evidence_refs` stores immutable `EvidenceRef` metadata, including source, locator, content SHA-256, collection time, complete canonical evidence-reference JSON, and a deterministic SHA-256 hash of that reference metadata. The locator is not treated as integrity proof; evidence bytes are not stored in this table.
+
+`observation_evidence` links observations to evidence references using tenant-qualified composite keys and foreign keys. Future immutable evidence-content storage is separate from these evidence-reference metadata rows.

@@ -76,3 +76,15 @@ docs/                       Public architecture and data-model documentation
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+## Persistence development
+
+The durable observation and evidence-reference store is developed against PostgreSQL, while automated repository tests use isolated temporary databases.
+
+```bash
+cp .env.example .env
+docker compose up -d postgres
+make migrate
+```
+
+This configures only the local persistence foundation; the current API does not ingest observations into, or query observations from, this database.

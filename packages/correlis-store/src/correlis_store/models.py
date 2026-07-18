@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import DateTime, Float, ForeignKeyConstraint, Index, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import JSON
+
+json_type = JSON().with_variant(JSONB, "postgresql")
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class ObservationRecord(Base):
+    __tablename__ = "observations"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ingest_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(128), nullable=False)
+    sensor_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    event_class: Mapped[str] = mapped_column(String(128), nullable=False)
+    activity: Mapped[str] = mapped_column(String(128), nullable=False)
+    severity: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    inserted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_observations_tenant_event_time", "tenant_id", "event_time"),
+        Index("ix_observations_tenant_source_event_time", "tenant_id", "source", "event_time"),
+        Index(
+            "ix_observations_tenant_event_class_event_time",
+            "tenant_id",
+            "event_class",
+            "event_time",
+        ),
+    )
+
+
+class EvidenceRefRecord(Base):
+    __tablename__ = "evidence_refs"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    evidence_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(128), nullable=False)
+    locator: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    inserted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_evidence_refs_tenant_sha256", "tenant_id", "sha256"),)
+
+
+class ObservationEvidenceRecord(Base):
+    __tablename__ = "observation_evidence"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evidence_id"],
+            ["evidence_refs.tenant_id", "evidence_refs.evidence_id"],
+        ),
+    )
