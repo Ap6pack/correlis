@@ -132,3 +132,7 @@ rate limits, and auditability.
 
 Kubernetes, Kafka, and a dedicated graph database are not baseline requirements.
 They are scale decisions, not credibility signals.
+
+## Durable observation store
+
+`correlis-store` is the initial implementation of the durable normalized-observation and evidence-reference repository. It persists canonical `correlis-schema` observation and evidence-reference payloads with tenant-qualified identifiers, immutable payload hashes, and observation-to-evidence associations. The API, replay service, projections, incidents, and raw evidence-content storage remain outside this persistence foundation.
