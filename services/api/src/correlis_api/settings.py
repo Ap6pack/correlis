@@ -5,12 +5,33 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Settings:
-    host: str = os.getenv("CORRELIS_HOST", "0.0.0.0")
-    port: int = int(os.getenv("CORRELIS_PORT", "8080"))
-    log_level: str = os.getenv("CORRELIS_LOG_LEVEL", "INFO")
-    scenario_dir: Path = Path(os.getenv("CORRELIS_SCENARIO_DIR", "scenarios"))
+    host: str = "0.0.0.0"
+    port: int = 8080
+    log_level: str = "INFO"
+    scenario_dir: Path = Path("./scenarios")
+    database_url: str | None = None
+    alembic_config_path: Path = Path("./alembic.ini")
 
+    def __post_init__(self) -> None:
+        try:
+            port = int(self.port)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("CORRELIS_PORT must be an integer from 1 through 65535") from exc
+        if not 1 <= port <= 65535:
+            raise ValueError("CORRELIS_PORT must be an integer from 1 through 65535")
+        object.__setattr__(self, "port", port)
+        object.__setattr__(self, "scenario_dir", Path(self.scenario_dir))
+        object.__setattr__(self, "alembic_config_path", Path(self.alembic_config_path))
 
-settings = Settings()
+    @classmethod
+    def from_env(cls) -> Settings:
+        return cls(
+            host=os.getenv("CORRELIS_HOST", "0.0.0.0"),
+            port=os.getenv("CORRELIS_PORT", "8080"),
+            log_level=os.getenv("CORRELIS_LOG_LEVEL", "INFO"),
+            scenario_dir=Path(os.getenv("CORRELIS_SCENARIO_DIR", "./scenarios")),
+            database_url=os.getenv("CORRELIS_DATABASE_URL") or None,
+            alembic_config_path=Path(os.getenv("CORRELIS_ALEMBIC_CONFIG", "./alembic.ini")),
+        )

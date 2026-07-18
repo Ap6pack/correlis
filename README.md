@@ -102,3 +102,13 @@ not require PostgreSQL.
 
 This configures only the local persistence foundation; the current API does not
 ingest observations into, or query observations from, this database.
+
+## API health checks
+
+The API exposes three health-check endpoints:
+
+- `GET /health` remains available for compatibility and reports API liveness.
+- `GET /health/live` reports that the API process is operating; it does not access PostgreSQL or the filesystem.
+- `GET /health/ready` reports whether the API is ready for database-backed operational endpoints by checking that PostgreSQL is configured, reachable, and at the expected Alembic migration head.
+
+Readiness checks never create tables or run migrations. Operators must run `make migrate` as a separate deployment step before expecting readiness to pass. Scenario endpoints remain usable as reference functionality, but later operational endpoints will require readiness.
