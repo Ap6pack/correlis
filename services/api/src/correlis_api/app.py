@@ -7,12 +7,19 @@ from datetime import datetime
 from typing import Annotated
 
 from correlis_ontology import CORE_ONTOLOGY, OntologyManifest, OntologyRegistry
-from correlis_store import create_database_engine, create_session_factory
+from correlis_store import (
+    AuthenticatedCollectorPrincipal,
+    CredentialPepperConfigurationError,
+    create_database_engine,
+    create_session_factory,
+)
+from correlis_store.credential_security import validate_credential_pepper
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
 from . import __version__
+from .collector_auth import get_authenticated_collector
 from .dependencies import get_ontology_registry, get_scenario_repository
 from .health import check_database_connectivity, check_migration_state
 from .scenarios import ScenarioNotFoundError, ScenarioRepository
@@ -38,9 +45,15 @@ class MigrationHealthResponse(BaseModel):
     expected: list[str] | None = None
 
 
+class CollectorAuthHealthResponse(BaseModel):
+    status: str
+    code: str | None = None
+
+
 class ReadinessChecks(BaseModel):
     database: DatabaseHealthResponse
     migrations: MigrationHealthResponse
+    collector_auth: CollectorAuthHealthResponse
 
 
 class ReadinessResponse(BaseModel):
@@ -48,6 +61,14 @@ class ReadinessResponse(BaseModel):
     service: str
     version: str
     checks: ReadinessChecks
+
+
+class CollectorMeResponse(BaseModel):
+    tenant_id: str
+    collector_id: str
+    name: str
+    source: str
+    credential_id: str
 
 
 def create_app(
@@ -120,6 +141,13 @@ def create_app(
 
     @api.get("/health/ready", response_model=ReadinessResponse)
     async def health_ready(response: Response) -> ReadinessResponse:
+        try:
+            validate_credential_pepper(resolved_settings.credential_pepper)
+            collector_auth_check = CollectorAuthHealthResponse(status="ok")
+        except CredentialPepperConfigurationError:
+            collector_auth_check = CollectorAuthHealthResponse(
+                status="error", code="credential_pepper_not_configured"
+            )
         database_engine = api.state.database_engine
         if database_engine is None:
             response.status_code = 503
@@ -128,10 +156,9 @@ def create_app(
                 service="correlis-api",
                 version=__version__,
                 checks=ReadinessChecks(
-                    database=DatabaseHealthResponse(
-                        status="error", code="database_not_configured"
-                    ),
+                    database=DatabaseHealthResponse(status="error", code="database_not_configured"),
                     migrations=MigrationHealthResponse(status="not_checked"),
+                    collector_auth=collector_auth_check,
                 ),
             )
 
@@ -145,6 +172,7 @@ def create_app(
                 checks=ReadinessChecks(
                     database=DatabaseHealthResponse(status="error", code=database_check.code),
                     migrations=MigrationHealthResponse(status="not_checked"),
+                    collector_auth=collector_auth_check,
                 ),
             )
 
@@ -157,7 +185,7 @@ def create_app(
             current=list(migration_check.current),
             expected=list(migration_check.expected),
         )
-        ready = migration_check.ok
+        ready = migration_check.ok and collector_auth_check.status == "ok"
         response.status_code = 200 if ready else 503
         return ReadinessResponse(
             status="ready" if ready else "not_ready",
@@ -166,7 +194,20 @@ def create_app(
             checks=ReadinessChecks(
                 database=DatabaseHealthResponse(status="ok"),
                 migrations=migration_payload,
+                collector_auth=collector_auth_check,
             ),
+        )
+
+    @api.get("/api/v1/collectors/me", response_model=CollectorMeResponse)
+    async def get_collector_me(
+        principal: Annotated[AuthenticatedCollectorPrincipal, Depends(get_authenticated_collector)],
+    ) -> CollectorMeResponse:
+        return CollectorMeResponse(
+            tenant_id=principal.tenant_id,
+            collector_id=principal.collector_id,
+            name=principal.collector_name,
+            source=principal.source,
+            credential_id=principal.credential_id,
         )
 
     @api.get("/api/v1/ontology", response_model=OntologyManifest)

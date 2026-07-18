@@ -47,6 +47,7 @@ def api_settings(**overrides) -> Settings:
         "scenario_dir": SCENARIOS,
         "database_url": None,
         "alembic_config_path": ALEMBIC_CONFIG,
+        "credential_pepper": "non-production-test-pepper-value-32-bytes",
     }
     values.update(overrides)
     return Settings(**values)
@@ -181,6 +182,17 @@ def test_ready_returns_200_when_database_is_at_alembic_head(tmp_path):
     assert response.json()["checks"]["migrations"]["current"] == alembic_heads()
 
 
+def test_ready_reports_missing_collector_auth_pepper(tmp_path):
+    engine = stamp_sqlite_database(tmp_path, "head")
+    with TestClient(create_app(api_settings(credential_pepper=None), engine=engine)) as client:
+        response = client.get("/health/ready")
+    assert response.status_code == 503
+    assert response.json()["checks"]["collector_auth"] == {
+        "status": "error",
+        "code": "credential_pepper_not_configured",
+    }
+
+
 def test_startup_creates_session_factory_when_database_is_configured(tmp_path):
     settings = api_settings(database_url=f"sqlite:///{tmp_path / 'app.sqlite'}")
     app = create_app(settings)
@@ -300,3 +312,77 @@ def test_injected_ontology_registry_is_returned_by_endpoint():
     app = create_app(api_settings(), ontology_registry=CORE_ONTOLOGY)
     with TestClient(app) as client:
         assert client.get("/api/v1/ontology").json()["version"] == CORE_ONTOLOGY.version
+
+
+def test_collector_me_authentication_success_and_failure(tmp_path):
+    from correlis_store import CollectorRepository
+
+    engine = stamp_sqlite_database(tmp_path, "head")
+    settings = api_settings()
+    with TestClient(create_app(settings, engine=engine)) as client:
+        repo = CollectorRepository(client.app.state.database_session_factory)
+        repo.create_collector(
+            tenant_id="tenant-a",
+            collector_id="collector-1",
+            name="Outrider Production",
+            source="outrider",
+        )
+        issued = repo.issue_credential(
+            "tenant-a",
+            "collector-1",
+            name="primary",
+            pepper=settings.credential_pepper,
+        )
+        missing = client.get("/api/v1/collectors/me")
+        assert missing.status_code == 401
+        assert missing.headers["WWW-Authenticate"] == "Bearer"
+        assert missing.json() == {
+            "detail": {
+                "code": "collector_credentials_required",
+                "message": "Collector credentials are required.",
+            }
+        }
+        invalid = client.get(
+            "/api/v1/collectors/me",
+            headers={"Authorization": "Bearer correlis_v1.not-a-uuid.secret"},
+        )
+        assert invalid.status_code == 401
+        assert invalid.json() == {
+            "detail": {
+                "code": "collector_authentication_failed",
+                "message": "Collector credentials are invalid or inactive.",
+            }
+        }
+        assert "token_malformed" not in invalid.text
+        ok = client.get(
+            "/api/v1/collectors/me",
+            headers={"Authorization": f"Bearer {issued.token}", "X-Request-ID": "rid-1"},
+        )
+        assert ok.status_code == 200
+        assert ok.json() == {
+            "tenant_id": "tenant-a",
+            "collector_id": "collector-1",
+            "name": "Outrider Production",
+            "source": "outrider",
+            "credential_id": issued.credential.credential_id,
+        }
+        assert "secret" not in ok.text
+        assert "digest" not in ok.text
+        events = repo.list_auth_events(tenant_id="tenant-a")
+        assert any(
+            event.request_id == "rid-1" and event.request_path == "/api/v1/collectors/me"
+            for event in events
+        )
+
+
+def test_collector_me_missing_pepper_returns_503(tmp_path):
+    engine = stamp_sqlite_database(tmp_path, "head")
+    with TestClient(create_app(api_settings(credential_pepper=None), engine=engine)) as client:
+        response = client.get("/api/v1/collectors/me", headers={"Authorization": "Bearer token"})
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "collector_authentication_not_configured",
+            "message": "Collector authentication is not configured.",
+        }
+    }
