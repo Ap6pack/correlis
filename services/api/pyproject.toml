@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "correlis-api"
+version = "0.1.0"
+description = "Reference API and attack-scene replay service for Correlis"
+requires-python = ">=3.11"
+dependencies = [
+  "correlis-schema>=0.1.0",
+  "fastapi>=0.128,<1",
+  "uvicorn[standard]>=0.48,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=9,<10",
+  "pytest-asyncio>=1.3,<2",
+  "ruff>=0.14,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

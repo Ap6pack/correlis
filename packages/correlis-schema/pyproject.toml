@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "correlis-schema"
+version = "0.1.0"
+description = "Canonical cyber operations contracts for Correlis"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.13,<3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
