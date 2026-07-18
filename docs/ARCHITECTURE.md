@@ -156,3 +156,9 @@ Runtime resources are initialized through FastAPI lifespan management. The API s
 Database construction remains owned by `correlis-store`, while `correlis-api` owns HTTP lifecycle and health semantics. Future operational routes should use the per-request database-session dependency, which opens one synchronous SQLAlchemy session per dependency invocation and closes it without implicit commits. Scenario replay remains file-backed and does not use PostgreSQL.
 
 Liveness and readiness are separate. `/health` and `/health/live` only indicate that the API process is operating. `/health/ready` verifies database configuration, connectivity, and the current Alembic revision set against the repository heads. Readiness does not run migrations, create tables, or otherwise mutate schema; Alembic migrations remain an explicit deployment responsibility such as `make migrate`.
+
+## Collector identity trust boundary
+
+Collectors are operational service identities, separate from ontology entities, analyst identities, users, observations, incident actors, or authorization roles. Collector tokens use `correlis_v1.<credential_id>.<secret>`: the credential ID selects stored metadata while the secret is verified with HMAC-SHA-256 using a server-held `CORRELIS_CREDENTIAL_PEPPER`. The complete token and plaintext secret are returned only during issuance and are not persisted.
+
+Successful authentication produces the trusted tenant context for future ingest routes: tenant ID and source come from the collector record, not request bodies or tenant override headers. Authentication appends operational audit events for both successful and rejected attempts. These audit events are not cyber observations. Collector and credential administration remains offline through `correlis-admin` until user authorization exists.

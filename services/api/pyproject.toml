@@ -15,6 +15,9 @@ dependencies = [
   "uvicorn[standard]>=0.48,<1",
 ]
 
+[project.scripts]
+correlis-admin = "correlis_api.admin:main"
+
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28,<1",

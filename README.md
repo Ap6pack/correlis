@@ -119,3 +119,24 @@ The API exposes three health-check endpoints:
 - `GET /health/ready` reports whether the API is ready for database-backed operational endpoints by checking that PostgreSQL is configured, reachable, and at the expected Alembic migration head.
 
 Readiness checks never create tables or run migrations. Operators must run `make migrate` as a separate deployment step before expecting readiness to pass. Scenario endpoints remain usable as reference functionality, but later operational endpoints will require readiness.
+
+## Collector authentication
+
+Collectors authenticate with opaque bearer credentials formatted as `correlis_v1.<credential_id>.<secret>`. Generate a private server-held pepper before issuing credentials:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
+
+Set that value as `CORRELIS_CREDENTIAL_PEPPER`, run database migrations, and use the offline `correlis-admin` command to manage collectors and credentials:
+
+```bash
+make migrate
+correlis-admin collectors create --tenant-id tenant-a --collector-id collector-1 --name "Outrider Production" --source outrider
+correlis-admin credentials issue --tenant-id tenant-a --collector-id collector-1 --name primary
+curl -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" http://localhost:8080/api/v1/collectors/me
+correlis-admin credentials revoke --credential-id <credential-id>
+correlis-admin collectors disable --tenant-id tenant-a --collector-id collector-1
+```
+
+The credential issuance command displays the complete token exactly once; complete tokens and plaintext secrets are never stored. Credentials are tenant-scoped through their collector, multiple active credentials support rotation, and disabling a collector invalidates all associated credentials. Administration is currently offline through `correlis-admin`; there is no user login or public administration API yet.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -13,6 +13,7 @@ class Settings:
     scenario_dir: Path = Path("./scenarios")
     database_url: str | None = None
     alembic_config_path: Path = Path("./alembic.ini")
+    credential_pepper: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -34,4 +35,5 @@ class Settings:
             scenario_dir=Path(os.getenv("CORRELIS_SCENARIO_DIR", "./scenarios")),
             database_url=os.getenv("CORRELIS_DATABASE_URL") or None,
             alembic_config_path=Path(os.getenv("CORRELIS_ALEMBIC_CONFIG", "./alembic.ini")),
+            credential_pepper=os.getenv("CORRELIS_CREDENTIAL_PEPPER") or None,
         )

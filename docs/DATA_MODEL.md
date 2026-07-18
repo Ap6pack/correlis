@@ -163,3 +163,17 @@ The incident has a final disposition and required evidence retention metadata.
 `evidence_refs` stores immutable `EvidenceRef` metadata, including source, locator, content SHA-256, collection time, complete canonical evidence-reference JSON, and a deterministic SHA-256 hash of that reference metadata. Identical tenant-qualified evidence references may be shared by multiple observations, but a different payload for the same evidence ID is an immutable-record conflict. The locator is not treated as integrity proof; evidence bytes are not stored in this table.
 
 `observation_evidence` links observations to evidence references using tenant-qualified composite keys and foreign keys. Future immutable evidence-content storage is separate from these evidence-reference metadata rows.
+
+## Collector authentication tables
+
+### `collectors`
+
+Tenant-scoped operational collector registry keyed by `(tenant_id, collector_id)`. Records include the collector name, normalized source, enabled or disabled status, metadata JSON, creation and update timestamps, disabled timestamp, and last successful authentication timestamp.
+
+### `collector_credentials`
+
+Credential metadata keyed by `credential_id` with a composite reference to the owning collector. Multiple credentials may overlap for rotation. The table stores token version, HMAC secret digest, creation time, optional expiration, optional revocation time, and last-used time. It never stores complete tokens or plaintext secrets.
+
+### `collector_auth_events`
+
+Append-only operational authentication audit records for successful and rejected collector authentication. Audit identifiers may be null for malformed or unknown credentials and events store request metadata only, never authorization headers, complete tokens, plaintext secrets, digests, or request bodies. These records are not canonical cyber observations in this PR.

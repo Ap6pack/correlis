@@ -82,3 +82,81 @@ class ObservationEvidenceRecord(Base):
             ["evidence_refs.tenant_id", "evidence_refs.evidence_id"],
         ),
     )
+
+
+class CollectorRecord(Base):
+    __tablename__ = "collectors"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    collector_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    source: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_authenticated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_collectors_tenant_status", "tenant_id", "status"),
+        Index("ix_collectors_tenant_source", "tenant_id", "source"),
+    )
+
+
+class CollectorCredentialRecord(Base):
+    __tablename__ = "collector_credentials"
+
+    credential_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    collector_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    token_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    secret_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "collector_id"], ["collectors.tenant_id", "collectors.collector_id"]
+        ),
+        Index("ix_collector_credentials_tenant_collector", "tenant_id", "collector_id"),
+        Index(
+            "ix_collector_credentials_tenant_collector_revoked",
+            "tenant_id",
+            "collector_id",
+            "revoked_at",
+        ),
+        Index("ix_collector_credentials_expires_at", "expires_at"),
+    )
+
+
+class CollectorAuthEventRecord(Base):
+    __tablename__ = "collector_auth_events"
+
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    collector_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    credential_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_method: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+
+    __table_args__ = (
+        Index("ix_collector_auth_events_occurred_at", "occurred_at"),
+        Index("ix_collector_auth_events_tenant_occurred", "tenant_id", "occurred_at"),
+        Index(
+            "ix_collector_auth_events_tenant_collector_occurred",
+            "tenant_id",
+            "collector_id",
+            "occurred_at",
+        ),
+        Index("ix_collector_auth_events_outcome_occurred", "outcome", "occurred_at"),
+    )
