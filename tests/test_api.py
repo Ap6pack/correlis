@@ -27,6 +27,7 @@ def postgres_url() -> str:
         pytest.skip("CORRELIS_TEST_DATABASE_URL is required for PostgreSQL integration tests")
     return url
 
+
 @pytest.fixture(scope="session")
 def migrated_engine(postgres_url: str):
     os.environ["CORRELIS_DATABASE_URL"] = postgres_url
@@ -39,6 +40,7 @@ def migrated_engine(postgres_url: str):
     finally:
         engine.dispose()
         command.downgrade(config, "base")
+
 
 def api_settings(**overrides) -> Settings:
     values = {
@@ -275,3 +277,26 @@ def test_postgres_ready_reports_current_head(migrated_engine):
     assert response.json()["checks"]["migrations"]["current"] == alembic_heads()
     with migrated_engine.connect() as connection:
         assert connection.execute(text("SELECT 1")).scalar_one() == 1
+
+
+def test_ontology_endpoint_returns_core_manifest_without_database():
+    with TestClient(create_app(api_settings())) as client:
+        response = client.get("/api/v1/ontology")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "correlis-core"
+    assert body["version"] == "0.1.0"
+    assert body["entity_types"]
+    assert body["relationship_types"]
+    assert body["action_types"]
+    assert [item["type"] for item in body["entity_types"]] == sorted(
+        item["type"] for item in body["entity_types"]
+    )
+
+
+def test_injected_ontology_registry_is_returned_by_endpoint():
+    from correlis_ontology import CORE_ONTOLOGY
+
+    app = create_app(api_settings(), ontology_registry=CORE_ONTOLOGY)
+    with TestClient(app) as client:
+        assert client.get("/api/v1/ontology").json()["version"] == CORE_ONTOLOGY.version

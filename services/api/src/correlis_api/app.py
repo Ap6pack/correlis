@@ -6,13 +6,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated
 
+from correlis_ontology import CORE_ONTOLOGY, OntologyManifest, OntologyRegistry
 from correlis_store import create_database_engine, create_session_factory
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
 from . import __version__
-from .dependencies import get_scenario_repository
+from .dependencies import get_ontology_registry, get_scenario_repository
 from .health import check_database_connectivity, check_migration_state
 from .scenarios import ScenarioNotFoundError, ScenarioRepository
 from .scene import SceneBuilder, build_scene
@@ -54,15 +55,18 @@ def create_app(
     *,
     scenario_repository: ScenarioRepository | None = None,
     engine: Engine | None = None,
+    ontology_registry: OntologyRegistry | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
     resolved_repository = scenario_repository or ScenarioRepository(resolved_settings.scenario_dir)
     injected_engine = engine
+    resolved_ontology_registry = ontology_registry or CORE_ONTOLOGY
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         application.state.settings = resolved_settings
         application.state.scenario_repository = resolved_repository
+        application.state.ontology_registry = resolved_ontology_registry
         application.state.database_engine = None
         application.state.database_session_factory = None
         application.state.owns_database_engine = False
@@ -101,6 +105,7 @@ def create_app(
     )
     api.state.settings = resolved_settings
     api.state.scenario_repository = resolved_repository
+    api.state.ontology_registry = resolved_ontology_registry
     api.state.database_engine = injected_engine
     api.state.database_session_factory = None
     api.state.owns_database_engine = False
@@ -164,6 +169,12 @@ def create_app(
             ),
         )
 
+    @api.get("/api/v1/ontology", response_model=OntologyManifest)
+    async def get_ontology(
+        registry: Annotated[OntologyRegistry, Depends(get_ontology_registry)],
+    ) -> OntologyManifest:
+        return registry.manifest()
+
     @api.get("/api/v1/scenarios")
     async def list_scenarios(
         repository: Annotated[ScenarioRepository, Depends(get_scenario_repository)],
@@ -179,7 +190,7 @@ def create_app(
             observations = repository.load(name)
         except ScenarioNotFoundError as exc:
             raise HTTPException(status_code=404, detail="scenario not found") from exc
-        return build_scene(name, observations)
+        return build_scene(name, observations, ontology_registry=api.state.ontology_registry)
 
     @api.websocket("/ws/scenarios/{name}/replay")
     async def replay_scenario(
@@ -205,6 +216,7 @@ def create_app(
             scene_id=f"scene:{name}",
             tenant_id=observations[0].tenant_id,
             title=name.replace("-", " ").title(),
+            ontology_registry=websocket.app.state.ontology_registry,
         )
         previous_time: datetime | None = None
 
