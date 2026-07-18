@@ -79,12 +79,26 @@ Apache License 2.0. See [LICENSE](LICENSE).
 
 ## Persistence development
 
-The durable observation and evidence-reference store is developed against PostgreSQL, while automated repository tests use isolated temporary databases.
+The durable observation and evidence-reference store is developed against PostgreSQL. The
+`correlis` database is the normal local development database.
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres
+make db-up
 make migrate
 ```
 
-This configures only the local persistence foundation; the current API does not ingest observations into, or query observations from, this database.
+Optional PostgreSQL integration tests use a separate disposable `correlis_test`
+database. With the Docker PostgreSQL service running, create it once with:
+
+```bash
+docker compose exec postgres createdb -U correlis correlis_test || true
+make test-postgres
+```
+
+PostgreSQL integration tests may migrate, downgrade, and truncate the test tables
+in `correlis_test`. The normal `make test` command remains SQLite-backed and does
+not require PostgreSQL.
+
+This configures only the local persistence foundation; the current API does not
+ingest observations into, or query observations from, this database.

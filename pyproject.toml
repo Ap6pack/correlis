@@ -2,6 +2,9 @@
 addopts = "-ra"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "postgres: tests requiring a real PostgreSQL database",
+]
 
 [tool.ruff]
 line-length = 100

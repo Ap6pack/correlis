@@ -149,8 +149,8 @@ The incident has a final disposition and required evidence retention metadata.
 
 ## Persistence tables
 
-`observations` stores normalized canonical `Observation` records. Each row is tenant-qualified by `(tenant_id, observation_id)`, stores query fields such as event time, source, event class, severity, and confidence, and keeps the complete canonical observation JSON plus a deterministic SHA-256 payload hash.
+`observations` stores normalized canonical `Observation` records. Each row is tenant-qualified by `(tenant_id, observation_id)`, stores query fields such as event time, source, event class, severity, and confidence, and keeps the complete canonical observation JSON plus a deterministic SHA-256 payload hash. Reusing an observation ID is idempotent only when the canonical payload hash is identical; a different payload for the same tenant-qualified ID is an immutable-record conflict, including under concurrent writes.
 
-`evidence_refs` stores immutable `EvidenceRef` metadata, including source, locator, content SHA-256, collection time, complete canonical evidence-reference JSON, and a deterministic SHA-256 hash of that reference metadata. The locator is not treated as integrity proof; evidence bytes are not stored in this table.
+`evidence_refs` stores immutable `EvidenceRef` metadata, including source, locator, content SHA-256, collection time, complete canonical evidence-reference JSON, and a deterministic SHA-256 hash of that reference metadata. Identical tenant-qualified evidence references may be shared by multiple observations, but a different payload for the same evidence ID is an immutable-record conflict. The locator is not treated as integrity proof; evidence bytes are not stored in this table.
 
 `observation_evidence` links observations to evidence references using tenant-qualified composite keys and foreign keys. Future immutable evidence-content storage is separate from these evidence-reference metadata rows.
