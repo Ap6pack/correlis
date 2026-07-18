@@ -21,7 +21,7 @@ each conclusion.
 - A deterministic scene builder with evidence-linked derived relationships.
 - A FastAPI service for scenario inspection and WebSocket replay.
 - A complete synthetic initial-access-to-lateral-movement reference scenario.
-- Public architecture, data-model, and technical decision records.
+- Public architecture and canonical data-model documentation.
 
 The current scenario service is a contract and replay vertical slice. It is not
 the production event store.
@@ -61,7 +61,7 @@ Then open:
 packages/correlis-schema/   Stable cyber contracts
 services/api/               Reference API and replay service
 scenarios/                  Reproducible attack scenarios
-docs/                       Architecture, data model, and technical decisions
+docs/                       Public architecture and data-model documentation
 ```
 
 ## Development principles
