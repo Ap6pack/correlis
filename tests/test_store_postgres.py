@@ -12,6 +12,7 @@ from correlis_schema import EntityRef, EntityType, EvidenceRef, EvidenceType, Ob
 from correlis_store import ImmutableRecordConflict, ObservationRepository, WriteDisposition
 from correlis_store.models import EvidenceRefRecord, ObservationEvidenceRecord, ObservationRecord
 from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -136,20 +137,20 @@ def test_postgresql_schema_contracts(session_factory, migrated_engine):
         payload = next(
             column for column in inspector.get_columns(table) if column["name"] == "payload_json"
         )
-        assert payload["type"].__class__.__name__ == "JSONB"
-    assert inspector.get_pk_constraint("observations")["constrained_columns"] == [
+        assert isinstance(payload["type"], JSONB)
+    assert set(inspector.get_pk_constraint("observations")["constrained_columns"]) == {
         "tenant_id",
         "observation_id",
-    ]
-    assert inspector.get_pk_constraint("evidence_refs")["constrained_columns"] == [
+    }
+    assert set(inspector.get_pk_constraint("evidence_refs")["constrained_columns"]) == {
         "tenant_id",
         "evidence_id",
-    ]
-    assert inspector.get_pk_constraint("observation_evidence")["constrained_columns"] == [
+    }
+    assert set(inspector.get_pk_constraint("observation_evidence")["constrained_columns"]) == {
         "tenant_id",
         "observation_id",
         "evidence_id",
-    ]
+    }
     fks = inspector.get_foreign_keys("observation_evidence")
     assert ["tenant_id", "observation_id"] in [fk["constrained_columns"] for fk in fks]
     assert ["tenant_id", "evidence_id"] in [fk["constrained_columns"] for fk in fks]

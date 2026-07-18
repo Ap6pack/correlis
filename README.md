@@ -92,7 +92,7 @@ Optional PostgreSQL integration tests use a separate disposable `correlis_test`
 database. With the Docker PostgreSQL service running, create it once with:
 
 ```bash
-docker compose exec postgres createdb -U correlis correlis_test
+docker compose exec postgres createdb -U correlis correlis_test || true
 make test-postgres
 ```
 
