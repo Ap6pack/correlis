@@ -105,6 +105,7 @@ class ObservationRepository:
                 payload_sha256=observation_hash,
             )
         )
+        session.flush()
         for evidence in observation.evidence:
             session.add(
                 ObservationEvidenceRecord(
