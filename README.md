@@ -140,3 +140,34 @@ correlis-admin collectors disable --tenant-id tenant-a --collector-id collector-
 ```
 
 The credential issuance command displays the complete token exactly once; complete tokens and plaintext secrets are never stored. Credentials are tenant-scoped through their collector, multiple active credentials support rotation, and disabling a collector invalidates all associated credentials. Administration is currently offline through `correlis-admin`; there is no user login or public administration API yet.
+
+## Authenticated observation ingestion
+
+Collectors can submit canonical observations after authenticating with a bearer collector token. The authenticated collector principal is the trusted source for `tenant_id`, `source`, `collector_id`, and `credential_id`; observation body values for tenant and source must match that principal and cannot be overridden by headers, query parameters, or route parameters.
+
+### Single ingestion
+
+```bash
+curl \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Request-ID: demo-ingest-001" \
+  --data @observation.json \
+  http://localhost:8080/api/v1/observations
+```
+
+A new immutable observation returns `created` with HTTP 201. An identical complete-request retry returns HTTP 200 with `existing`. A changed immutable observation or evidence payload for an existing identifier returns HTTP 409 without exposing stored payloads, hashes, tokens, digests, or pepper material.
+
+### Batch ingestion
+
+```bash
+curl \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data @observation-batch.json \
+  http://localhost:8080/api/v1/observations/batch
+```
+
+Batches use `{ "observations": [...] }`, require at least one item, and are bounded by `CORRELIS_INGEST_MAX_BATCH_SIZE`. Batch prevalidation checks every tenant scope, source scope, and ontology relationship before writing any item. After prevalidation succeeds, items are persisted in input order with independent commits; per-item conflicts are reported without stopping later valid items, and retrying the complete batch is safe because identical records return `existing`. Duplicate IDs are processed in input order, so identical duplicates produce `created` then `existing`, while conflicting duplicates produce `created` then `conflict`.
+
+Request IDs are resolved once per HTTP request from a safe `X-Request-ID` value or a generated UUID. The same ID appears in authentication audit events, ingestion response bodies, response headers, and operational logs. Ingestion requires `application/json` or `application/*+json`; `CORRELIS_INGEST_MAX_BODY_BYTES` limits request bytes independently of the item-count limit. Ingestion validates the canonical schema and core ontology, but it does not yet build a persistent Attack Scene or publish observations to a durable processing stream.
