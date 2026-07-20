@@ -20,12 +20,22 @@ from .collectors import (
 )
 from .credential_security import CredentialPepperConfigurationError
 from .database import create_database_engine, create_session_factory
-from .errors import ImmutableRecordConflict
+from .errors import (
+    ImmutableRecordConflict,
+    ObservationSequenceCursorError,
+    ObservationSequenceInvariantError,
+)
 from .hashing import canonical_model_sha256
 from .observation_queries import (
     ObservationPageAnchor,
     ObservationQueryFilters,
     ObservationQueryPage,
+)
+from .observation_sequence import (
+    ObservationSequenceAllocator,
+    ObservationSequencePage,
+    ObservationWriteResult,
+    SequencedObservation,
 )
 from .repository import ObservationRepository, WriteDisposition
 
@@ -51,6 +61,12 @@ __all__ = [
     "ObservationPageAnchor",
     "ObservationQueryFilters",
     "ObservationQueryPage",
+    "ObservationSequenceAllocator",
+    "ObservationSequenceCursorError",
+    "ObservationSequenceInvariantError",
+    "ObservationSequencePage",
+    "ObservationWriteResult",
+    "SequencedObservation",
     "ObservationRepository",
     "WriteDisposition",
     "canonical_model_sha256",

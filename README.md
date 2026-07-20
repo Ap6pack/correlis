@@ -212,3 +212,7 @@ curl \
 Observation listing supports filters for event-time bounds, event class, severity, sensor ID, and an optional source parameter that must match the authenticated collector source. Pagination uses stable keyset ordering by `(event_time, observation_id)` rather than offsets, so observations sharing an event timestamp are not skipped or duplicated. Cursors are opaque continuation state and must be reused with the same filters.
 
 Evidence is visible only through an associated observation that is visible to the collector. The evidence endpoint returns canonical evidence-reference metadata, not raw evidence bytes, and it does not fetch evidence locators. Tenant-wide analyst queries and durable processing-order cursors are future work requiring user authorization and will not use this event-time cursor.
+
+## Durable processing order
+
+Every committed observation receives an internal global ingest sequence. This sequence is a safe processing order for Correlis-managed consumers, not source event time. Sequence assignment is transactional with observation and evidence persistence, and Correlis serializes allocation through a singleton database row so allocation order cannot race ahead of commit order. Rolled-back writes do not become visible and do not leave durable cursor gaps. Collector APIs do not expose the global sequence, and existing observation list pagination remains event-time based. Future projectors will consume this durable sequence as their processing boundary.

@@ -3,28 +3,39 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
-from enum import StrEnum
 
 from correlis_schema import EvidenceRef, Observation
 from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from .errors import ImmutableRecordConflict
+from .errors import (
+    ImmutableRecordConflict,
+    ObservationSequenceCursorError,
+    ObservationSequenceInvariantError,
+)
 from .hashing import canonical_model_json, canonical_model_sha256
-from .models import EvidenceRefRecord, ObservationEvidenceRecord, ObservationRecord
+from .models import (
+    EvidenceRefRecord,
+    ObservationEvidenceRecord,
+    ObservationIngestEntryRecord,
+    ObservationRecord,
+)
 from .observation_queries import (
     ObservationPageAnchor,
     ObservationQueryFilters,
     ObservationQueryPage,
 )
+from .observation_sequence import (
+    MAX_SEQUENCE_PAGE_LIMIT,
+    ObservationSequenceAllocator,
+    ObservationSequencePage,
+    ObservationWriteResult,
+    SequencedObservation,
+    WriteDisposition,
+)
 
 MAX_LIST_LIMIT = 500
-
-
-class WriteDisposition(StrEnum):
-    CREATED = "created"
-    EXISTING = "existing"
 
 
 class ObservationRepository:
@@ -43,13 +54,16 @@ class ObservationRepository:
             session.close()
 
     def put(self, observation: Observation) -> WriteDisposition:
+        return self.put_with_result(observation).disposition
+
+    def put_with_result(self, observation: Observation) -> ObservationWriteResult:
         retry_after_integrity_error = False
         while True:
             with self._session_scope() as session:
                 try:
-                    disposition = self._put_with_session(session, observation)
+                    result = self._put_with_session(session, observation)
                     session.commit()
-                    return disposition
+                    return result
                 except IntegrityError:
                     session.rollback()
                     if retry_after_integrity_error:
@@ -59,7 +73,9 @@ class ObservationRepository:
                     session.rollback()
                     raise
 
-    def _put_with_session(self, session: Session, observation: Observation) -> WriteDisposition:
+    def _put_with_session(
+        self, session: Session, observation: Observation
+    ) -> ObservationWriteResult:
         tenant_id = observation.tenant_id
         observation_hash = canonical_model_sha256(observation)
         existing_observation = session.get(
@@ -69,7 +85,8 @@ class ObservationRepository:
             if existing_observation.payload_sha256 != observation_hash:
                 raise ImmutableRecordConflict("observation", tenant_id, observation.id)
             self._ensure_evidence_matches(session, observation)
-            return WriteDisposition.EXISTING
+            sequence = self._existing_sequence(session, tenant_id, observation.id)
+            return ObservationWriteResult(WriteDisposition.EXISTING, sequence)
 
         for evidence in observation.evidence:
             evidence_hash = canonical_model_sha256(evidence)
@@ -117,7 +134,91 @@ class ObservationRepository:
                     tenant_id=tenant_id, observation_id=observation.id, evidence_id=evidence.id
                 )
             )
-        return WriteDisposition.CREATED
+        session.flush()
+        sequence = ObservationSequenceAllocator().allocate(session)
+        session.add(
+            ObservationIngestEntryRecord(
+                ingest_sequence=sequence, tenant_id=tenant_id, observation_id=observation.id
+            )
+        )
+        session.flush()
+        return ObservationWriteResult(WriteDisposition.CREATED, sequence)
+
+    def _existing_sequence(self, session: Session, tenant_id: str, observation_id: str) -> int:
+        sequence = session.scalar(
+            select(ObservationIngestEntryRecord.ingest_sequence).where(
+                ObservationIngestEntryRecord.tenant_id == tenant_id,
+                ObservationIngestEntryRecord.observation_id == observation_id,
+            )
+        )
+        if sequence is None:
+            raise ObservationSequenceInvariantError(
+                "existing observation is missing a sequence entry"
+            )
+        return int(sequence)
+
+    def get_ingest_sequence(self, tenant_id: str, observation_id: str) -> int | None:
+        with self._session_scope() as session:
+            value = session.scalar(
+                select(ObservationIngestEntryRecord.ingest_sequence).where(
+                    ObservationIngestEntryRecord.tenant_id == tenant_id,
+                    ObservationIngestEntryRecord.observation_id == observation_id,
+                )
+            )
+            return int(value) if value is not None else None
+
+    def read_sequence_page(
+        self, *, after_sequence: int = 0, limit: int = 100
+    ) -> ObservationSequencePage:
+        if after_sequence < 0:
+            raise ObservationSequenceCursorError("after_sequence must be zero or positive")
+        if limit < 1 or limit > MAX_SEQUENCE_PAGE_LIMIT:
+            raise ObservationSequenceCursorError(
+                f"limit must be between 1 and {MAX_SEQUENCE_PAGE_LIMIT}"
+            )
+        with self._session_scope() as session:
+            allocator = ObservationSequenceAllocator()
+            high_watermark = allocator.high_watermark(session)
+            stmt = (
+                select(ObservationIngestEntryRecord, ObservationRecord)
+                .outerjoin(
+                    ObservationRecord,
+                    and_(
+                        ObservationRecord.tenant_id == ObservationIngestEntryRecord.tenant_id,
+                        ObservationRecord.observation_id
+                        == ObservationIngestEntryRecord.observation_id,
+                    ),
+                )
+                .where(
+                    ObservationIngestEntryRecord.ingest_sequence > after_sequence,
+                    ObservationIngestEntryRecord.ingest_sequence <= high_watermark,
+                )
+                .order_by(ObservationIngestEntryRecord.ingest_sequence.asc())
+                .limit(limit + 1)
+            )
+            rows = list(session.execute(stmt))
+            returned = rows[:limit]
+            items_list: list[SequencedObservation] = []
+            for entry, record in returned:
+                if record is None:
+                    raise ObservationSequenceInvariantError(
+                        "sequence entry is missing its observation"
+                    )
+                items_list.append(
+                    SequencedObservation(
+                        int(entry.ingest_sequence),
+                        Observation.model_validate(record.payload_json),
+                    )
+                )
+            items = tuple(items_list)
+            next_sequence = items[-1].ingest_sequence if items else after_sequence
+            return ObservationSequencePage(
+                items=items,
+                after_sequence=after_sequence,
+                next_sequence=next_sequence,
+                high_watermark=high_watermark,
+                has_more=len(rows) > limit,
+            )
 
     def _ensure_evidence_matches(self, session: Session, observation: Observation) -> None:
         for evidence in observation.evidence:
@@ -205,7 +306,7 @@ class ObservationRepository:
                         EvidenceRefRecord.evidence_id == ObservationEvidenceRecord.evidence_id,
                     ),
                 )
-                .join(
+                .outerjoin(
                     ObservationRecord,
                     and_(
                         ObservationRecord.tenant_id == ObservationEvidenceRecord.tenant_id,

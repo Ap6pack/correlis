@@ -34,7 +34,11 @@ from . import __version__
 from .body_limits import IngestionBodyLimitMiddleware
 from .collector_auth import get_authenticated_collector
 from .dependencies import get_ontology_registry, get_scenario_repository
-from .health import check_database_connectivity, check_migration_state
+from .health import (
+    check_database_connectivity,
+    check_migration_state,
+    check_observation_sequence_state,
+)
 from .ingestion import router as ingestion_router
 from .observation_queries import router as observation_queries_router
 from .request_context import RequestIdMiddleware
@@ -66,10 +70,17 @@ class CollectorAuthHealthResponse(BaseModel):
     code: str | None = None
 
 
+class ObservationSequenceHealthResponse(BaseModel):
+    status: str
+    high_watermark: int | None = None
+    code: str | None = None
+
+
 class ReadinessChecks(BaseModel):
     database: DatabaseHealthResponse
     migrations: MigrationHealthResponse
     collector_auth: CollectorAuthHealthResponse
+    observation_sequence: ObservationSequenceHealthResponse
 
 
 class ReadinessResponse(BaseModel):
@@ -232,6 +243,7 @@ def create_app(
                     database=DatabaseHealthResponse(status="error", code="database_not_configured"),
                     migrations=MigrationHealthResponse(status="not_checked"),
                     collector_auth=collector_auth_check,
+                    observation_sequence=ObservationSequenceHealthResponse(status="not_checked"),
                 ),
             )
 
@@ -246,6 +258,7 @@ def create_app(
                     database=DatabaseHealthResponse(status="error", code=database_check.code),
                     migrations=MigrationHealthResponse(status="not_checked"),
                     collector_auth=collector_auth_check,
+                    observation_sequence=ObservationSequenceHealthResponse(status="not_checked"),
                 ),
             )
 
@@ -258,7 +271,21 @@ def create_app(
             current=list(migration_check.current),
             expected=list(migration_check.expected),
         )
-        ready = migration_check.ok and collector_auth_check.status == "ok"
+        if migration_check.ok:
+            sequence_check = check_observation_sequence_state(database_engine)
+            sequence_payload = ObservationSequenceHealthResponse(
+                status=sequence_check.status,
+                high_watermark=sequence_check.high_watermark,
+                code=sequence_check.code,
+            )
+        else:
+            sequence_check = None
+            sequence_payload = ObservationSequenceHealthResponse(status="not_checked")
+        ready = (
+            migration_check.ok
+            and collector_auth_check.status == "ok"
+            and (sequence_check is not None and sequence_check.ok)
+        )
         response.status_code = 200 if ready else 503
         return ReadinessResponse(
             status="ready" if ready else "not_ready",
@@ -268,6 +295,7 @@ def create_app(
                 database=DatabaseHealthResponse(status="ok"),
                 migrations=migration_payload,
                 collector_auth=collector_auth_check,
+                observation_sequence=sequence_payload,
             ),
         )
 

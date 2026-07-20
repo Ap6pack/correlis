@@ -58,3 +58,45 @@ def check_migration_state(engine: Engine, alembic_config_path: Path) -> Migratio
     return MigrationCheck(
         ok=False, code="migrations_out_of_date", current=current, expected=expected
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationSequenceHealthResult:
+    ok: bool
+    status: str
+    high_watermark: int | None = None
+    code: str | None = None
+
+
+def check_observation_sequence_state(engine: Engine) -> ObservationSequenceHealthResult:
+    try:
+        with engine.connect() as connection:
+            state = connection.execute(
+                text(
+                    "SELECT last_sequence FROM observation_ingest_sequence_state "
+                    "WHERE singleton_id = 1"
+                )
+            ).scalar_one_or_none()
+            if state is None:
+                return ObservationSequenceHealthResult(
+                    ok=False, status="error", code="observation_sequence_state_missing"
+                )
+            max_entry = connection.execute(
+                text("SELECT COALESCE(MAX(ingest_sequence), 0) FROM observation_ingest_entries")
+            ).scalar_one()
+            observation_count = connection.execute(
+                text("SELECT COUNT(*) FROM observations")
+            ).scalar_one()
+            entry_count = connection.execute(
+                text("SELECT COUNT(*) FROM observation_ingest_entries")
+            ).scalar_one()
+    except Exception:
+        logger.exception("Observation sequence readiness check failed")
+        return ObservationSequenceHealthResult(
+            ok=False, status="error", code="observation_sequence_unavailable"
+        )
+    if int(state) != int(max_entry) or int(observation_count) != int(entry_count):
+        return ObservationSequenceHealthResult(
+            ok=False, status="error", code="observation_sequence_state_inconsistent"
+        )
+    return ObservationSequenceHealthResult(ok=True, status="ok", high_watermark=int(state))

@@ -278,3 +278,55 @@ def test_source_scoped_evidence_lookup_uses_visible_associations(session_factory
     assert repo.get_evidence_scoped("tenant-a", "source-b", "ev-shared") == shared
     assert repo.get_evidence_scoped("tenant-a", "source-a", "ev-hidden") is None
     assert repo.get_evidence_scoped("tenant-a", "source-a", "ev-other") is None
+
+
+def test_put_with_result_assigns_and_reuses_ingest_sequence(session_factory):
+    repo = ObservationRepository(session_factory)
+    first = observation(id="seq-1", ev=evidence("seq-ev-1"))
+    second = observation(id="seq-2", ev=evidence("seq-ev-2", "2" * 64))
+
+    first_result = repo.put_with_result(first)
+    second_result = repo.put_with_result(second)
+
+    assert first_result.disposition == WriteDisposition.CREATED
+    assert first_result.ingest_sequence == 1
+    assert second_result.ingest_sequence == 2
+    retry = repo.put_with_result(first)
+    assert retry.disposition == WriteDisposition.EXISTING
+    assert retry.ingest_sequence == 1
+    assert repo.get_ingest_sequence(first.tenant_id, first.id) == 1
+    assert repo.get_ingest_sequence("tenant-b", first.id) is None
+
+
+def test_sequence_page_is_ascending_and_cursor_safe(session_factory):
+    repo = ObservationRepository(session_factory)
+    newer_event = datetime(2026, 1, 3, tzinfo=UTC)
+    older_event = datetime(2026, 1, 1, tzinfo=UTC)
+    first = observation(id="page-1", when=newer_event, ev=evidence("page-ev-1"))
+    second = observation(id="page-2", when=older_event, ev=evidence("page-ev-2", "3" * 64))
+    repo.put(first)
+    repo.put(second)
+
+    page = repo.read_sequence_page(after_sequence=0, limit=1)
+    assert page.high_watermark == 2
+    assert page.has_more is True
+    assert page.next_sequence == 1
+    assert [item.observation.id for item in page.items] == ["page-1"]
+
+    next_page = repo.read_sequence_page(after_sequence=page.next_sequence, limit=10)
+    assert next_page.has_more is False
+    assert next_page.next_sequence == 2
+    assert [item.ingest_sequence for item in next_page.items] == [2]
+    assert [item.observation.id for item in next_page.items] == ["page-2"]
+
+
+def test_sequence_cursor_validation(session_factory):
+    from correlis_store import ObservationSequenceCursorError
+
+    repo = ObservationRepository(session_factory)
+    with pytest.raises(ObservationSequenceCursorError):
+        repo.read_sequence_page(after_sequence=-1)
+    with pytest.raises(ObservationSequenceCursorError):
+        repo.read_sequence_page(limit=0)
+    with pytest.raises(ObservationSequenceCursorError):
+        repo.read_sequence_page(limit=501)

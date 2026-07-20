@@ -3,7 +3,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKeyConstraint, Index, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKeyConstraint,
+    Index,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    func,
+    insert,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -43,6 +57,49 @@ class ObservationRecord(Base):
             "event_class",
             "event_time",
         ),
+    )
+
+
+class ObservationIngestSequenceStateRecord(Base):
+    __tablename__ = "observation_ingest_sequence_state"
+
+    singleton_id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, autoincrement=False)
+    last_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+
+    __table_args__ = (
+        CheckConstraint("singleton_id = 1", name="ck_observation_ingest_sequence_state_singleton"),
+        CheckConstraint(
+            "last_sequence >= 0", name="ck_observation_ingest_sequence_state_nonnegative"
+        ),
+    )
+
+
+@event.listens_for(ObservationIngestSequenceStateRecord.__table__, "after_create")
+def _insert_initial_observation_ingest_sequence_state(target, connection, **kw):
+    connection.execute(insert(target).values(singleton_id=1, last_sequence=0))
+
+
+class ObservationIngestEntryRecord(Base):
+    __tablename__ = "observation_ingest_entries"
+
+    ingest_sequence: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    observation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    inserted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "observation_id", name="uq_observation_ingest_entries_observation"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        Index("ix_observation_ingest_entries_tenant_sequence", "tenant_id", "ingest_sequence"),
     )
 
 

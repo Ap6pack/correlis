@@ -9,3 +9,11 @@ class ImmutableRecordConflict(Exception):
         super().__init__(
             f"immutable {resource_type} conflict for tenant {tenant_id!r} and id {record_id!r}"
         )
+
+
+class ObservationSequenceInvariantError(Exception):
+    """Raised when durable observation sequence state is missing or inconsistent."""
+
+
+class ObservationSequenceCursorError(ValueError):
+    """Raised when an observation sequence cursor or page size is invalid."""
