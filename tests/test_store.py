@@ -3,8 +3,22 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from correlis_schema import EntityRef, EntityType, EvidenceRef, EvidenceType, Observation
-from correlis_store import ImmutableRecordConflict, ObservationRepository, WriteDisposition
+from correlis_schema import (
+    EntityRef,
+    EntityType,
+    EventClass,
+    EvidenceRef,
+    EvidenceType,
+    Observation,
+    Severity,
+)
+from correlis_store import (
+    ImmutableRecordConflict,
+    ObservationPageAnchor,
+    ObservationQueryFilters,
+    ObservationRepository,
+    WriteDisposition,
+)
 from correlis_store.hashing import canonical_model_sha256
 from correlis_store.models import Base, ObservationEvidenceRecord, ObservationRecord
 from sqlalchemy import create_engine, func, inspect, select
@@ -155,3 +169,112 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
     assert {"observations", "evidence_refs", "observation_evidence"}.isdisjoint(
         set(inspect(engine).get_table_names())
     )
+
+
+def scoped_observation(
+    id: str,
+    tenant: str = "tenant-a",
+    source: str = "sensor",
+    when: datetime | None = None,
+    sensor: str = "sensor-1",
+    event_class: str = "authentication",
+    severity: str = "low",
+    ev: EvidenceRef | None = None,
+) -> Observation:
+    obs = observation(
+        id=id, tenant=tenant, when=when, ev=ev or evidence(f"ev-{id}", (id[-1:] or "a") * 64)
+    )
+    return obs.model_copy(
+        update={
+            "source": source,
+            "sensor_id": sensor,
+            "event_class": event_class,
+            "severity": severity,
+        }
+    )
+
+
+def test_source_scoped_direct_lookup_and_unscoped_compatibility(session_factory):
+    repo = ObservationRepository(session_factory)
+    obs = scoped_observation("obs-1", source="source-a")
+    repo.put(obs)
+    assert repo.get_scoped("tenant-a", "source-a", "obs-1") == obs
+    assert repo.get_scoped("tenant-b", "source-a", "obs-1") is None
+    assert repo.get_scoped("tenant-a", "source-b", "obs-1") is None
+    assert repo.get("tenant-a", "obs-1") == obs
+
+
+def test_source_scoped_list_keyset_filters_and_limits(session_factory):
+    repo = ObservationRepository(session_factory)
+    t = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    for obs in [
+        scoped_observation(
+            "obs-a",
+            when=t,
+            source="source-a",
+            sensor="s1",
+            event_class="authentication",
+            severity="low",
+        ),
+        scoped_observation(
+            "obs-b",
+            when=t,
+            source="source-a",
+            sensor="s1",
+            event_class="authentication",
+            severity="high",
+        ),
+        scoped_observation(
+            "obs-c",
+            when=t + timedelta(hours=1),
+            source="source-a",
+            sensor="s2",
+            event_class="network_activity",
+            severity="high",
+        ),
+        scoped_observation(
+            "obs-d",
+            when=t + timedelta(hours=2),
+            source="source-b",
+            sensor="s1",
+            event_class="authentication",
+            severity="low",
+        ),
+    ]:
+        repo.put(obs)
+    page1 = repo.list_page("tenant-a", "source-a", limit=2)
+    assert [o.id for o in page1.observations] == ["obs-c", "obs-b"]
+    assert page1.has_more is True
+    assert page1.next_anchor == ObservationPageAnchor(t, "obs-b")
+    page2 = repo.list_page("tenant-a", "source-a", limit=2, anchor=page1.next_anchor)
+    assert [o.id for o in page2.observations] == ["obs-a"]
+    assert page2.has_more is False
+    filt = ObservationQueryFilters(
+        event_time_from=t,
+        event_time_to=t,
+        event_class=EventClass.AUTHENTICATION,
+        severity=Severity.HIGH,
+        sensor_id="s1",
+    )
+    assert [
+        o.id for o in repo.list_page("tenant-a", "source-a", limit=10, filters=filt).observations
+    ] == ["obs-b"]
+    with pytest.raises(ValueError):
+        repo.list_page("tenant-a", "source-a", limit=0)
+
+
+def test_source_scoped_evidence_lookup_uses_visible_associations(session_factory):
+    repo = ObservationRepository(session_factory)
+    shared = evidence("ev-shared", "d" * 64)
+    source_a = scoped_observation("obs-a", source="source-a", ev=shared)
+    source_b = scoped_observation("obs-b", source="source-b", ev=shared)
+    hidden = scoped_observation("obs-c", source="source-b", ev=evidence("ev-hidden", "e" * 64))
+    other_tenant = scoped_observation(
+        "obs-d", tenant="tenant-b", source="source-a", ev=evidence("ev-other", "f" * 64)
+    )
+    for obs in [source_a, source_b, hidden, other_tenant]:
+        repo.put(obs)
+    assert repo.get_evidence_scoped("tenant-a", "source-a", "ev-shared") == shared
+    assert repo.get_evidence_scoped("tenant-a", "source-b", "ev-shared") == shared
+    assert repo.get_evidence_scoped("tenant-a", "source-a", "ev-hidden") is None
+    assert repo.get_evidence_scoped("tenant-a", "source-a", "ev-other") is None
