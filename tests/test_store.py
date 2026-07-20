@@ -153,6 +153,21 @@ def test_before_filter(session_factory):
     assert [obs.id for obs in repo.list("tenant-a", before=t2)] == ["obs-a"]
 
 
+def test_alembic_revision_ids_fit_default_version_table():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config("alembic.ini"))
+    revisions = list(script.walk_revisions())
+    revision_ids = [revision.revision for revision in revisions]
+
+    assert revision_ids
+    assert all(revision_id for revision_id in revision_ids)
+    assert len(set(revision_ids)) == len(revision_ids)
+    assert all(len(revision_id) <= 32 for revision_id in revision_ids)
+    assert script.get_current_head() == "0003_observation_sequence"
+
+
 def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypatch):
     from alembic import command
     from alembic.config import Config

@@ -1,6 +1,6 @@
 """durable observation sequence
 
-Revision ID: 0003_durable_observation_sequence
+Revision ID: 0003_observation_sequence
 Revises: 0002_collector_identity
 Create Date: 2026-07-20 00:00:00.000000
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0003_durable_observation_sequence"
+revision = "0003_observation_sequence"
 down_revision = "0002_collector_identity"
 branch_labels = None
 depends_on = None
