@@ -16,6 +16,8 @@ class Settings:
     credential_pepper: str | None = field(default=None, repr=False)
     ingest_max_body_bytes: int = 2_097_152
     ingest_max_batch_size: int = 100
+    query_default_page_size: int = 50
+    query_max_page_size: int = 200
 
     def __post_init__(self) -> None:
         try:
@@ -41,6 +43,21 @@ class Settings:
             raise ValueError("CORRELIS_INGEST_MAX_BATCH_SIZE must be an integer from 1 through 500")
         object.__setattr__(self, "ingest_max_body_bytes", ingest_max_body_bytes)
         object.__setattr__(self, "ingest_max_batch_size", ingest_max_batch_size)
+        try:
+            query_default_page_size = int(self.query_default_page_size)
+            query_max_page_size = int(self.query_max_page_size)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("query page sizes must be positive integers") from exc
+        if query_default_page_size < 1 or query_max_page_size < 1:
+            raise ValueError("query page sizes must be positive integers")
+        if query_max_page_size > 500:
+            raise ValueError("CORRELIS_QUERY_MAX_PAGE_SIZE must not exceed 500")
+        if query_default_page_size > query_max_page_size:
+            raise ValueError(
+                "CORRELIS_QUERY_DEFAULT_PAGE_SIZE must not exceed CORRELIS_QUERY_MAX_PAGE_SIZE"
+            )
+        object.__setattr__(self, "query_default_page_size", query_default_page_size)
+        object.__setattr__(self, "query_max_page_size", query_max_page_size)
         object.__setattr__(self, "scenario_dir", Path(self.scenario_dir))
         object.__setattr__(self, "alembic_config_path", Path(self.alembic_config_path))
 
@@ -56,4 +73,6 @@ class Settings:
             credential_pepper=os.getenv("CORRELIS_CREDENTIAL_PEPPER") or None,
             ingest_max_body_bytes=os.getenv("CORRELIS_INGEST_MAX_BODY_BYTES", "2097152"),
             ingest_max_batch_size=os.getenv("CORRELIS_INGEST_MAX_BATCH_SIZE", "100"),
+            query_default_page_size=os.getenv("CORRELIS_QUERY_DEFAULT_PAGE_SIZE", "50"),
+            query_max_page_size=os.getenv("CORRELIS_QUERY_MAX_PAGE_SIZE", "200"),
         )

@@ -6,13 +6,18 @@ from datetime import datetime
 from enum import StrEnum
 
 from correlis_schema import EvidenceRef, Observation
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .errors import ImmutableRecordConflict
 from .hashing import canonical_model_json, canonical_model_sha256
 from .models import EvidenceRefRecord, ObservationEvidenceRecord, ObservationRecord
+from .observation_queries import (
+    ObservationPageAnchor,
+    ObservationQueryFilters,
+    ObservationQueryPage,
+)
 
 MAX_LIST_LIMIT = 500
 
@@ -123,6 +128,102 @@ class ObservationRepository:
             if existing is None or existing.payload_sha256 != canonical_model_sha256(evidence):
                 raise ImmutableRecordConflict("evidence_ref", observation.tenant_id, evidence.id)
 
+    def get_scoped(self, tenant_id: str, source: str, observation_id: str) -> Observation | None:
+        with self._session_scope() as session:
+            stmt = select(ObservationRecord).where(
+                ObservationRecord.tenant_id == tenant_id,
+                ObservationRecord.source == source,
+                ObservationRecord.observation_id == observation_id,
+            )
+            record = session.scalars(stmt).first()
+            return Observation.model_validate(record.payload_json) if record else None
+
+    def list_page(
+        self,
+        tenant_id: str,
+        source: str,
+        *,
+        limit: int,
+        anchor: ObservationPageAnchor | None = None,
+        filters: ObservationQueryFilters | None = None,
+    ) -> ObservationQueryPage:
+        if limit < 1 or limit > MAX_LIST_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_LIST_LIMIT}")
+        filters = filters or ObservationQueryFilters()
+        with self._session_scope() as session:
+            stmt: Select[tuple[ObservationRecord]] = select(ObservationRecord).where(
+                ObservationRecord.tenant_id == tenant_id,
+                ObservationRecord.source == source,
+            )
+            if filters.event_time_from is not None:
+                stmt = stmt.where(ObservationRecord.event_time >= filters.event_time_from)
+            if filters.event_time_to is not None:
+                stmt = stmt.where(ObservationRecord.event_time <= filters.event_time_to)
+            if filters.event_class is not None:
+                stmt = stmt.where(ObservationRecord.event_class == str(filters.event_class))
+            if filters.severity is not None:
+                stmt = stmt.where(ObservationRecord.severity == str(filters.severity))
+            if filters.sensor_id is not None:
+                stmt = stmt.where(ObservationRecord.sensor_id == filters.sensor_id)
+            if anchor is not None:
+                stmt = stmt.where(
+                    or_(
+                        ObservationRecord.event_time < anchor.event_time,
+                        and_(
+                            ObservationRecord.event_time == anchor.event_time,
+                            ObservationRecord.observation_id < anchor.observation_id,
+                        ),
+                    )
+                )
+            stmt = stmt.order_by(
+                ObservationRecord.event_time.desc(), ObservationRecord.observation_id.desc()
+            ).limit(limit + 1)
+            records = list(session.scalars(stmt))
+            returned = records[:limit]
+            observations = tuple(Observation.model_validate(r.payload_json) for r in returned)
+            has_more = len(records) > limit
+            next_anchor = None
+            if has_more and observations:
+                final = observations[-1]
+                next_anchor = ObservationPageAnchor(
+                    event_time=final.event_time, observation_id=final.id
+                )
+            return ObservationQueryPage(
+                observations=observations, has_more=has_more, next_anchor=next_anchor
+            )
+
+    def get_evidence_scoped(
+        self, tenant_id: str, source: str, evidence_id: str
+    ) -> EvidenceRef | None:
+        with self._session_scope() as session:
+            stmt = (
+                select(EvidenceRefRecord)
+                .join(
+                    ObservationEvidenceRecord,
+                    and_(
+                        EvidenceRefRecord.tenant_id == ObservationEvidenceRecord.tenant_id,
+                        EvidenceRefRecord.evidence_id == ObservationEvidenceRecord.evidence_id,
+                    ),
+                )
+                .join(
+                    ObservationRecord,
+                    and_(
+                        ObservationRecord.tenant_id == ObservationEvidenceRecord.tenant_id,
+                        ObservationRecord.observation_id
+                        == ObservationEvidenceRecord.observation_id,
+                    ),
+                )
+                .where(
+                    EvidenceRefRecord.tenant_id == tenant_id,
+                    EvidenceRefRecord.evidence_id == evidence_id,
+                    ObservationRecord.tenant_id == tenant_id,
+                    ObservationRecord.source == source,
+                )
+                .distinct()
+            )
+            record = session.scalars(stmt).first()
+            return EvidenceRef.model_validate(record.payload_json) if record else None
+
     def get(self, tenant_id: str, observation_id: str) -> Observation | None:
         with self._session_scope() as session:
             record = session.get(
@@ -145,8 +246,7 @@ class ObservationRepository:
                 ObservationRecord.event_time.desc(), ObservationRecord.observation_id.desc()
             ).limit(limit)
             return [
-                Observation.model_validate(record.payload_json)
-                for record in session.scalars(stmt)
+                Observation.model_validate(record.payload_json) for record in session.scalars(stmt)
             ]
 
     def get_evidence(self, tenant_id: str, evidence_id: str) -> EvidenceRef | None:

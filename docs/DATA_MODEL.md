@@ -181,3 +181,11 @@ Append-only operational authentication audit records for successful and rejected
 ## Ingestion data-model notes
 
 Authenticated ingestion introduces no new persistence table. Observations and evidence references continue to be stored immutably in the existing tables. The submitted `ingest_time` is canonical normalized-observation data and participates in immutable observation identity, while `inserted_at` is the database storage timestamp assigned by the platform. Tenant and source values are authorized against the authenticated collector principal before persistence, and the stored observation copy uses that trusted principal scope.
+
+## Collector readback query model
+
+Collector readback does not add persistence tables or migrations. Query responses reconstruct canonical schema models from the immutable observation and evidence-reference payload JSON already stored with each record.
+
+Observation pages are ordered by event time descending and then observation ID descending. Pagination anchors use both values so equal-time observations remain stable across retries and page boundaries.
+
+Evidence-reference visibility is derived from `observation_evidence` associations joined to observations. A collector can see an evidence reference only through an associated observation in the collector's tenant and source; the API returns metadata only and does not retrieve raw evidence bytes or follow locators.

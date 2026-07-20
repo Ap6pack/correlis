@@ -171,3 +171,44 @@ curl \
 Batches use `{ "observations": [...] }`, require at least one item, and are bounded by `CORRELIS_INGEST_MAX_BATCH_SIZE`. Batch prevalidation checks every tenant scope, source scope, and ontology relationship before writing any item. After prevalidation succeeds, items are persisted in input order with independent commits; per-item conflicts are reported without stopping later valid items, and retrying the complete batch is safe because identical records return `existing`. Duplicate IDs are processed in input order, so identical duplicates produce `created` then `existing`, while conflicting duplicates produce `created` then `conflict`.
 
 Request IDs are resolved once per HTTP request from a safe `X-Request-ID` value or a generated UUID. The same ID appears in authentication audit events, ingestion response bodies, response headers, and operational logs. Ingestion requires `application/json` or `application/*+json`; `CORRELIS_INGEST_MAX_BODY_BYTES` limits request bytes independently of the item-count limit. Ingestion validates the canonical schema and core ontology, but it does not yet build a persistent Attack Scene or publish observations to a durable processing stream.
+
+## Collector observation readback
+
+Authenticated collectors can read back immutable observations through a collector-scoped API. Collector credentials are not analyst accounts: each query is restricted to the tenant and normalized source bound to the authenticated collector credential, and a collector cannot query another source in the same tenant.
+
+Direct observation lookup:
+
+```bash
+curl \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  -H "X-Request-ID: query-001" \
+  http://localhost:8080/api/v1/observations/obs-123
+```
+
+List observations:
+
+```bash
+curl \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  "http://localhost:8080/api/v1/observations?event_class=exposure_finding&limit=50"
+```
+
+Continue pagination:
+
+```bash
+curl \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  "http://localhost:8080/api/v1/observations?event_class=exposure_finding&limit=50&cursor=<cursor>"
+```
+
+Evidence-reference metadata lookup:
+
+```bash
+curl \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  http://localhost:8080/api/v1/evidence/evidence-123
+```
+
+Observation listing supports filters for event-time bounds, event class, severity, sensor ID, and an optional source parameter that must match the authenticated collector source. Pagination uses stable keyset ordering by `(event_time, observation_id)` rather than offsets, so observations sharing an event timestamp are not skipped or duplicated. Cursors are opaque continuation state and must be reused with the same filters.
+
+Evidence is visible only through an associated observation that is visible to the collector. The evidence endpoint returns canonical evidence-reference metadata, not raw evidence bytes, and it does not fetch evidence locators. Tenant-wide analyst queries and durable processing-order cursors are future work requiring user authorization and will not use this event-time cursor.

@@ -22,6 +22,11 @@ from .credential_security import CredentialPepperConfigurationError
 from .database import create_database_engine, create_session_factory
 from .errors import ImmutableRecordConflict
 from .hashing import canonical_model_sha256
+from .observation_queries import (
+    ObservationPageAnchor,
+    ObservationQueryFilters,
+    ObservationQueryPage,
+)
 from .repository import ObservationRepository, WriteDisposition
 
 __all__ = [
@@ -43,6 +48,9 @@ __all__ = [
     "ImmutableRecordConflict",
     "InvalidCredentialExpiration",
     "IssuedCollectorCredential",
+    "ObservationPageAnchor",
+    "ObservationQueryFilters",
+    "ObservationQueryPage",
     "ObservationRepository",
     "WriteDisposition",
     "canonical_model_sha256",

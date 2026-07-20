@@ -36,6 +36,7 @@ from .collector_auth import get_authenticated_collector
 from .dependencies import get_ontology_registry, get_scenario_repository
 from .health import check_database_connectivity, check_migration_state
 from .ingestion import router as ingestion_router
+from .observation_queries import router as observation_queries_router
 from .request_context import RequestIdMiddleware
 from .scenarios import ScenarioNotFoundError, ScenarioRepository
 from .scene import SceneBuilder, build_scene
@@ -152,7 +153,10 @@ def create_app(
 
     @api.exception_handler(RequestValidationError)
     async def ingestion_validation_handler(request: Request, exc: RequestValidationError):
-        if request.url.path in {"/api/v1/observations", "/api/v1/observations/batch"}:
+        if request.method == "POST" and request.url.path in {
+            "/api/v1/observations",
+            "/api/v1/observations/batch",
+        }:
             errors = [
                 {
                     "location": list(error.get("loc", ())),
@@ -171,9 +175,34 @@ def create_app(
                     }
                 },
             )
+
+        if request.method == "GET" and (
+            request.url.path == "/api/v1/observations"
+            or request.url.path.startswith("/api/v1/observations/")
+            or request.url.path.startswith("/api/v1/evidence/")
+        ):
+            errors = [
+                {
+                    "location": list(error.get("loc", ())),
+                    "type": str(error.get("type", "validation_error")),
+                    "message": str(error.get("msg", "Input failed validation")),
+                }
+                for error in exc.errors()
+            ]
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": {
+                        "code": "query_validation_failed",
+                        "message": "The observation query parameters failed validation.",
+                        "errors": errors,
+                    }
+                },
+            )
         return await request_validation_exception_handler(request, exc)
 
     api.include_router(ingestion_router)
+    api.include_router(observation_queries_router)
 
     @api.get("/health", response_model=LiveHealthResponse)
     async def health() -> LiveHealthResponse:
