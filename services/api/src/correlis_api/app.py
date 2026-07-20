@@ -14,14 +14,29 @@ from correlis_store import (
     create_session_factory,
 )
 from correlis_store.credential_security import validate_credential_pepper
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
 from . import __version__
+from .body_limits import IngestionBodyLimitMiddleware
 from .collector_auth import get_authenticated_collector
 from .dependencies import get_ontology_registry, get_scenario_repository
 from .health import check_database_connectivity, check_migration_state
+from .ingestion import router as ingestion_router
+from .request_context import RequestIdMiddleware
 from .scenarios import ScenarioNotFoundError, ScenarioRepository
 from .scene import SceneBuilder, build_scene
 from .settings import Settings
@@ -130,6 +145,35 @@ def create_app(
     api.state.database_engine = injected_engine
     api.state.database_session_factory = None
     api.state.owns_database_engine = False
+    api.add_middleware(
+        IngestionBodyLimitMiddleware, max_body_bytes=resolved_settings.ingest_max_body_bytes
+    )
+    api.add_middleware(RequestIdMiddleware)
+
+    @api.exception_handler(RequestValidationError)
+    async def ingestion_validation_handler(request: Request, exc: RequestValidationError):
+        if request.url.path in {"/api/v1/observations", "/api/v1/observations/batch"}:
+            errors = [
+                {
+                    "location": list(error.get("loc", ())),
+                    "type": str(error.get("type", "validation_error")),
+                    "message": str(error.get("msg", "Input failed validation")),
+                }
+                for error in exc.errors()
+            ]
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": {
+                        "code": "request_validation_failed",
+                        "message": "The observation request failed validation.",
+                        "errors": errors,
+                    }
+                },
+            )
+        return await request_validation_exception_handler(request, exc)
+
+    api.include_router(ingestion_router)
 
     @api.get("/health", response_model=LiveHealthResponse)
     async def health() -> LiveHealthResponse:

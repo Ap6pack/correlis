@@ -177,3 +177,7 @@ Credential metadata keyed by `credential_id` with a composite reference to the o
 ### `collector_auth_events`
 
 Append-only operational authentication audit records for successful and rejected collector authentication. Audit identifiers may be null for malformed or unknown credentials and events store request metadata only, never authorization headers, complete tokens, plaintext secrets, digests, or request bodies. These records are not canonical cyber observations in this PR.
+
+## Ingestion data-model notes
+
+Authenticated ingestion introduces no new persistence table. Observations and evidence references continue to be stored immutably in the existing tables. The submitted `ingest_time` is canonical normalized-observation data and participates in immutable observation identity, while `inserted_at` is the database storage timestamp assigned by the platform. Tenant and source values are authorized against the authenticated collector principal before persistence, and the stored observation copy uses that trusted principal scope.

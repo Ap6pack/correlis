@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from correlis_store import (
@@ -14,6 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from .dependencies import get_database_session
+from .request_context import get_request_id
 
 bearer = HTTPBearer(auto_error=False)
 REQUIRED = {
@@ -28,13 +28,6 @@ NOT_CONFIGURED = {
     "code": "collector_authentication_not_configured",
     "message": "Collector authentication is not configured.",
 }
-
-
-def _request_id(request: Request) -> str:
-    value = request.headers.get("X-Request-ID")
-    if value and 1 <= len(value) <= 128:
-        return value
-    return str(uuid.uuid4())
 
 
 def _bearer_error(detail: dict[str, str]) -> HTTPException:
@@ -56,7 +49,7 @@ def get_authenticated_collector(
         raise HTTPException(status_code=503, detail=NOT_CONFIGURED) from exc
     decision = authenticator.authenticate(
         token,
-        request_id=_request_id(request),
+        request_id=get_request_id(request),
         request_method=request.method,
         request_path=request.url.path,
     )
