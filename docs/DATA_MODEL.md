@@ -189,3 +189,25 @@ Collector readback does not add persistence tables or migrations. Query response
 Observation pages are ordered by event time descending and then observation ID descending. Pagination anchors use both values so equal-time observations remain stable across retries and page boundaries.
 
 Evidence-reference visibility is derived from `observation_evidence` associations joined to observations. A collector can see an evidence reference only through an associated observation in the collector's tenant and source; the API returns metadata only and does not retrieve raw evidence bytes or follow locators.
+
+## Observation time and sequence fields
+
+### Event time
+
+The time the source says the event occurred. Event-time ordering is used for collector-facing browsing and pagination, but it is not a durable processing cursor.
+
+### Ingest time
+
+The canonical normalized-observation ingestion time supplied in the observation payload.
+
+### Inserted at
+
+The database storage timestamp assigned by Correlis persistence tables.
+
+### Ingest sequence
+
+A commit-safe internal processing order assigned transactionally by Correlis. The ingest sequence does not claim to reconstruct source chronology and is not exposed through collector observation, ingestion, or evidence responses.
+
+`observation_ingest_sequence_state` stores the singleton allocator row (`singleton_id = 1`) and the committed high watermark in `last_sequence`.
+
+`observation_ingest_entries` maps each committed observation (`tenant_id`, `observation_id`) to exactly one global `ingest_sequence`, with an insertion timestamp for storage auditing. Consumers join this table to immutable observation payloads instead of duplicating observation content.
