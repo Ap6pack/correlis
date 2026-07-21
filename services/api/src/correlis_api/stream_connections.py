@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from types import MappingProxyType
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationStreamConnectionSnapshot:
+    total: int
+    per_collector: MappingProxyType[tuple[str, str], int]
 
 
 class ObservationStreamConnectionLimiter:
     def __init__(self, *, max_connections: int, max_connections_per_collector: int):
+        if max_connections < 1:
+            raise ValueError("max_connections must be at least 1")
+        if max_connections_per_collector < 1:
+            raise ValueError("max_connections_per_collector must be at least 1")
+        if max_connections_per_collector > max_connections:
+            raise ValueError("max_connections_per_collector must not exceed max_connections")
         self.max_connections = max_connections
         self.max_connections_per_collector = max_connections_per_collector
         self._lock = asyncio.Lock()
@@ -35,6 +48,13 @@ class ObservationStreamConnectionLimiter:
             else:
                 self._per[key] = count - 1
 
+    async def snapshot(self) -> ObservationStreamConnectionSnapshot:
+        async with self._lock:
+            return ObservationStreamConnectionSnapshot(
+                total=self._total,
+                per_collector=MappingProxyType(dict(self._per)),
+            )
+
 
 @dataclass(slots=True)
 class ObservationStreamLease:
@@ -47,3 +67,9 @@ class ObservationStreamLease:
             return
         self._released = True
         await self._limiter._release(self._key)
+
+    async def __aenter__(self) -> ObservationStreamLease:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.release()

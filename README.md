@@ -289,3 +289,15 @@ curl -N \
   -H "Last-Event-ID: $CORRELIS_STREAM_CURSOR" \
   http://localhost:8080/api/v1/streams/observations
 ```
+
+### Durable observation stream hardening
+
+The collector observation stream performs static request validation before acquiring stream capacity. Cursor text, `Last-Event-ID`, conflicting cursor sources, `start` conflicts, and tenant/source override attempts are rejected before a lease is acquired. Once capacity is acquired, preflight uses a short-lived database session to read the committed observation high watermark directly, and any preflight failure releases the lease.
+
+Capacity cleanup is deliberately idempotent and occurs through two lifecycle paths: the stream generator releases the lease in `finally`, and the `StreamingResponse` has a background finalizer that releases the same lease after response cleanup. This covers completion, cancellation, disconnects, and response paths where iteration does not fully consume the generator.
+
+Authorization revalidation is deadline-based and occurs before scans, before each observation, before checkpoints, and before heartbeat comments when the recheck interval has elapsed. A revoked, expired, disabled, removed, or source-reassigned collector may finish an event already being transmitted, but after revalidation detects inactivity it receives no subsequent observation or checkpoint. Bounded prefetched pages do not override this boundary.
+
+The stream preserves direct backpressure: there is no queue, producer task, broker, fan-out cache, or background poller. The next bounded page is not scanned until the response iterator resumes through every event from the current page. Database sessions remain short-lived and are not held while waiting on a client.
+
+Delivery remains at least once around reconnect boundaries. Stream cursors remain encrypted `ocs1.*` tokens scoped to the collector tenant, collector ID, and source, and raw global sequence values are not exposed in collector-facing payloads.

@@ -212,3 +212,13 @@ The cursor position is the last durable global position scanned, not the last vi
 Database sessions are short-lived for stream authentication, initial high-watermark preflight, each bounded scanner poll, and periodic credential/collector revalidation. The stream does not hold a request-scoped SQLAlchemy session while waiting for clients or sleeping. Response iteration provides direct backpressure: the next page is not read until the current page's events have been yielded.
 
 Connection limits are maintained in process with async-lock-protected counters for a global limit and per-tenant/per-collector limits. This PR intentionally does not add Redis, Kafka, a broker, a background publisher, or distributed stream coordination. Polling is PostgreSQL-first and relies on the existing durable sequence tables.
+
+### Durable observation stream lifecycle
+
+`GET /api/v1/streams/observations` validates static request state before acquiring capacity. Empty or malformed cursors, invalid `Last-Event-ID` values, cursor conflicts, cursor/start conflicts, and forbidden tenant or source overrides fail without consuming a stream lease. After a lease is acquired, high-watermark preflight uses a short-lived database session and releases capacity on any preflight or cursor-ahead failure.
+
+Stream leases are released from both the generator `finally` block and the response background finalizer. The release operation is idempotent, so this double protection safely handles normal completion, cancellation, disconnects, stream failures, and response-lifecycle cleanup when a generator is not fully consumed.
+
+Authorization revalidation is performed when the configured deadline elapses before scans, observations, checkpoints, and heartbeat comments. The security boundary is per emitted event: a collector whose credentials or collector record are revoked, expired, disabled, removed, or source-reassigned can finish the event already in flight, but receives no following observation or checkpoint once revalidation detects inactivity. Prefetched pages are bounded and do not bypass this check.
+
+The stream keeps direct response backpressure. It does not use queues, background producer tasks, fan-out caches, brokers, or long-lived database sessions. A scan returns one bounded page, the response iterator yields directly from that page, and the next scan occurs only after the page has been consumed. Reconnect delivery remains at least once, with encrypted collector-scoped `ocs1.*` cursors and no raw global sequence exposure in event payloads.
