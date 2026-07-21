@@ -211,3 +211,17 @@ A commit-safe internal processing order assigned transactionally by Correlis. Th
 `observation_ingest_sequence_state` stores the singleton allocator row (`singleton_id = 1`) and the committed high watermark in `last_sequence`.
 
 `observation_ingest_entries` maps each committed observation (`tenant_id`, `observation_id`) to exactly one global `ingest_sequence`, with an insertion timestamp for storage auditing. Consumers join this table to immutable observation payloads instead of duplicating observation content.
+
+## Projection operational state
+
+### `projector_checkpoints`
+
+Mutable operational state for each projector name/version. The composite primary key is `projector_name, projector_version`; `last_processed_sequence` starts at `0`, and status is `idle`, `paused`, or `failed`. A failed checkpoint records `last_failure_sequence`, which must be greater than the last processed sequence. No foreign key is used for `last_processed_sequence` because sequence `0` is a valid initial checkpoint.
+
+Checkpoint advancement is global because projectors scan the durable global observation sequence centrally. Tenant-specific projectors must examine every global sequence entry and no-op irrelevant observations rather than skipping cursor positions.
+
+### `projector_failures`
+
+Retained operational history for poison observations. The composite primary key is `projector_name, projector_version, ingest_sequence`; records reference the projector checkpoint, the ingest sequence entry, and the immutable observation. Active failures block normal projector execution. Successful retry changes the failure to `resolved` and sets `resolved_at`, but the record is not deleted.
+
+Projector failures do not mutate immutable observations, evidence, or the global ingest sequence. They contain safe operator-facing error classifications only, not observation payloads or evidence locators.

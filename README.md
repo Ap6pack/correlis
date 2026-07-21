@@ -216,3 +216,36 @@ Evidence is visible only through an associated observation that is visible to th
 ## Durable processing order
 
 Every committed observation receives an internal global ingest sequence. This sequence is a safe processing order for Correlis-managed consumers, not source event time. Sequence assignment is transactional with observation and evidence persistence, and Correlis serializes allocation through a singleton database row so allocation order cannot race ahead of commit order. Rolled-back writes do not become visible and do not leave durable cursor gaps. Collector APIs do not expose the global sequence, and existing observation list pagination remains event-time based. Future projectors will consume this durable sequence as their processing boundary.
+
+## Projection checkpoints
+
+Projectors consume Correlis's durable global observation sequence as versioned stream consumers. A projector identity is the composite of `projector_name` and `projector_version`, so a new version starts from checkpoint sequence `0` and can coexist with earlier versions.
+
+Projection handlers are database-only: projection writes and checkpoint advancement commit in the same SQLAlchemy transaction. Each projector version is protected by an exclusive checkpoint row lock while a bounded batch runs. The runner captures the observation high watermark at batch start, processes sequence entries in ingest-sequence order, and does not include observations that arrive after that boundary until a later run.
+
+When a handler fails, Correlis records a durable projector failure, leaves the checkpoint immediately before the failed observation, and blocks normal runs so the failed observation cannot be skipped. Retry is explicit; a successful retry resolves the failure while retaining the failure history. This PR adds the checkpoint and failure runtime only; no background worker exists yet.
+
+Inspect and control projector operational state with `correlis-admin`:
+
+```bash
+correlis-admin projectors register \
+  --name entity-projection \
+  --version 1
+```
+
+```bash
+correlis-admin projectors list
+```
+
+```bash
+correlis-admin projectors pause \
+  --name entity-projection \
+  --version 1
+```
+
+```bash
+correlis-admin projection-failures list \
+  --name entity-projection \
+  --version 1 \
+  --status active
+```

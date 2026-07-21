@@ -92,6 +92,8 @@ def reset_observation_store(connection) -> None:
         text(
             """
             TRUNCATE TABLE
+                projector_failures,
+                projector_checkpoints,
                 observation_ingest_entries,
                 observation_evidence,
                 observations,
@@ -113,6 +115,8 @@ def reset_observation_store(connection) -> None:
     counts_by_table = {
         table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
         for table in (
+            "projector_failures",
+            "projector_checkpoints",
             "observation_ingest_entries",
             "observation_evidence",
             "observations",
@@ -120,6 +124,8 @@ def reset_observation_store(connection) -> None:
         )
     }
     assert counts_by_table == {
+        "projector_failures": 0,
+        "projector_checkpoints": 0,
         "observation_ingest_entries": 0,
         "observation_evidence": 0,
         "observations": 0,
