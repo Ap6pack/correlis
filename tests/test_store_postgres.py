@@ -14,6 +14,13 @@ from correlis_store import (
     ObservationRepository,
     ObservationSequenceAllocator,
     ObservationSequenceCursorError,
+    ProjectionHandlerError,
+    ProjectionInvariantError,
+    ProjectionRepository,
+    ProjectionRunner,
+    ProjectionRunOutcome,
+    ProjectorFailureStatus,
+    ProjectorIdentity,
     WriteDisposition,
 )
 from correlis_store.models import (
@@ -23,7 +30,18 @@ from correlis_store.models import (
     ObservationIngestSequenceStateRecord,
     ObservationRecord,
 )
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    func,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import BIGINT, JSONB, SMALLINT
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -31,6 +49,17 @@ from sqlalchemy.orm import Session, sessionmaker
 pytestmark = pytest.mark.postgres
 
 POSTGRES_URL = os.environ.get("CORRELIS_TEST_DATABASE_URL")
+
+projection_metadata = MetaData()
+projection_effects = Table(
+    "test_projection_effects",
+    projection_metadata,
+    Column("projector_name", String(128), primary_key=True),
+    Column("projector_version", String(64), primary_key=True),
+    Column("ingest_sequence", BigInteger, primary_key=True),
+    Column("observation_id", String(128), nullable=False),
+    Column("value", String(128), nullable=False),
+)
 
 
 def evidence(id: str = "ev-1", sha: str = "a" * 64, locator: str | None = None) -> EvidenceRef:
@@ -80,9 +109,13 @@ def migrated_engine(postgres_url: str):
     command.downgrade(config, "base")
     command.upgrade(config, "head")
     engine = create_engine(postgres_url, future=True)
+    with engine.begin() as connection:
+        projection_effects.create(connection, checkfirst=True)
     try:
         yield engine
     finally:
+        with engine.begin() as connection:
+            projection_effects.drop(connection, checkfirst=True)
         engine.dispose()
         command.downgrade(config, "base")
 
@@ -92,6 +125,7 @@ def reset_observation_store(connection) -> None:
         text(
             """
             TRUNCATE TABLE
+                test_projection_effects,
                 projector_failures,
                 projector_checkpoints,
                 observation_ingest_entries,
@@ -115,6 +149,7 @@ def reset_observation_store(connection) -> None:
     counts_by_table = {
         table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
         for table in (
+            "test_projection_effects",
             "projector_failures",
             "projector_checkpoints",
             "observation_ingest_entries",
@@ -124,6 +159,7 @@ def reset_observation_store(connection) -> None:
         )
     }
     assert counts_by_table == {
+        "test_projection_effects": 0,
         "projector_failures": 0,
         "projector_checkpoints": 0,
         "observation_ingest_entries": 0,
@@ -765,3 +801,128 @@ def test_postgresql_sequence_migration_backfills_deterministically(postgres_url)
     finally:
         engine.dispose()
         command.upgrade(config, "head")
+
+
+def _projection_identity(name="test-projection", version="1"):
+    return ProjectorIdentity(name, version)
+
+
+def _write_projection_effect(session, identity, item, value="ok"):
+    session.execute(
+        projection_effects.insert().values(
+            projector_name=identity.name,
+            projector_version=identity.version,
+            ingest_sequence=item.ingest_sequence,
+            observation_id=item.observation.id,
+            value=value,
+        )
+    )
+
+
+def test_postgresql_projection_atomic_success(session_factory):
+    identity = _projection_identity()
+    ProjectionRepository(session_factory).register_projector(identity)
+    ObservationRepository(session_factory).put(
+        observation("obs-p1", ev=evidence("ev-p1", "1" * 64))
+    )
+    ObservationRepository(session_factory).put(
+        observation("obs-p2", ev=evidence("ev-p2", "2" * 64))
+    )
+
+    result = ProjectionRunner(session_factory).run_batch(
+        identity, lambda session, item: _write_projection_effect(session, identity, item)
+    )
+
+    assert result.outcome == ProjectionRunOutcome.CAUGHT_UP
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(projection_effects)) == 2
+    checkpoint = ProjectionRepository(session_factory).get_checkpoint(identity)
+    assert checkpoint.last_processed_sequence == 2
+    assert checkpoint.status == "idle"
+    assert ProjectionRepository(session_factory).list_failures(
+        identity, status=ProjectorFailureStatus.ACTIVE
+    ) == []
+
+
+def test_postgresql_projection_poison_failure_rolls_back_item(session_factory):
+    identity = _projection_identity()
+    ProjectionRepository(session_factory).register_projector(identity)
+    for idx in range(1, 4):
+        ObservationRepository(session_factory).put(
+            observation(f"obs-p{idx}", ev=evidence(f"ev-p{idx}", f"{idx}" * 64))
+        )
+
+    def handler(session, item):
+        _write_projection_effect(session, identity, item)
+        if item.ingest_sequence == 2:
+            raise ProjectionHandlerError("bad_item", "safe failure")
+        if item.ingest_sequence == 3:
+            raise AssertionError("sequence 3 must not be called")
+
+    result = ProjectionRunner(session_factory).run_batch(identity, handler)
+
+    assert result.outcome == ProjectionRunOutcome.FAILED
+    assert result.processed_count == 1
+    with session_factory() as session:
+        rows = session.execute(select(projection_effects.c.ingest_sequence)).all()
+    assert rows == [(1,)]
+    checkpoint = ProjectionRepository(session_factory).get_checkpoint(identity)
+    assert checkpoint.last_processed_sequence == 1
+    assert checkpoint.status == "failed"
+    assert checkpoint.last_failure_sequence == 2
+    failure = ProjectionRepository(session_factory).list_failures(
+        identity, status=ProjectorFailureStatus.ACTIVE
+    )[0]
+    assert failure.ingest_sequence == 2
+    assert failure.attempt_count == 1
+
+
+def test_postgresql_projection_infrastructure_error_is_not_poison(session_factory):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    identity = _projection_identity()
+    repo = ProjectionRepository(session_factory)
+    repo.register_projector(identity)
+    ObservationRepository(session_factory).put(
+        observation("obs-infra", ev=evidence("ev-infra", "f" * 64))
+    )
+
+    def broken(session, item):
+        _write_projection_effect(session, identity, item)
+        session.execute(text("SELECT * FROM deliberately_missing_projection_table"))
+
+    with pytest.raises(SQLAlchemyError):
+        ProjectionRunner(session_factory).run_batch(identity, broken)
+
+    checkpoint = repo.get_checkpoint(identity)
+    assert checkpoint.status == "idle"
+    assert checkpoint.last_processed_sequence == 0
+    assert repo.list_failures(identity, status=ProjectorFailureStatus.ACTIVE) == []
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(projection_effects)) == 0
+
+
+def test_postgresql_projection_missing_failure_record_invariant(session_factory):
+    identity = _projection_identity()
+    repo = ProjectionRepository(session_factory)
+    repo.register_projector(identity)
+    ObservationRepository(session_factory).put(
+        observation("obs-inv", ev=evidence("ev-inv", "e" * 64))
+    )
+    ProjectionRunner(session_factory).run_batch(
+        identity,
+        lambda session, item: (_ for _ in ()).throw(ProjectionHandlerError("bad", "safe")),
+    )
+    with session_factory.begin() as session:
+        session.execute(text("DELETE FROM projector_failures"))
+
+    called = False
+
+    def handler(session, item):
+        nonlocal called
+        called = True
+
+    with pytest.raises(ProjectionInvariantError):
+        ProjectionRunner(session_factory).run_batch(identity, handler, retry_failed=True)
+    assert not called
+    assert repo.get_checkpoint(identity).status == "failed"

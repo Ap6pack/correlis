@@ -5,10 +5,12 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import ProjectorCheckpointRecord, ProjectorFailureRecord
 from .projections import (
+    ProjectorBusy,
     ProjectorCheckpoint,
     ProjectorFailed,
     ProjectorFailure,
@@ -18,6 +20,7 @@ from .projections import (
     ProjectorStateConflict,
     ProjectorStatus,
 )
+from .projector_locking import is_lock_not_available
 
 MAX_LIMIT = 500
 
@@ -88,20 +91,30 @@ class ProjectionRepository:
                 ProjectorCheckpointRecord,
                 {"projector_name": identity.name, "projector_version": identity.version},
             )
-            if rec is None:
-                now = self._clock()
-                rec = ProjectorCheckpointRecord(
-                    projector_name=identity.name,
-                    projector_version=identity.version,
-                    last_processed_sequence=0,
-                    status=ProjectorStatus.IDLE,
-                    last_failure_sequence=None,
-                    created_at=now,
-                    updated_at=now,
-                    last_processed_at=None,
-                )
-                session.add(rec)
+            if rec is not None:
+                return checkpoint_from_record(rec)
+            now = self._clock()
+            rec = ProjectorCheckpointRecord(
+                projector_name=identity.name,
+                projector_version=identity.version,
+                last_processed_sequence=0,
+                status=ProjectorStatus.IDLE,
+                last_failure_sequence=None,
+                created_at=now,
+                updated_at=now,
+                last_processed_at=None,
+            )
+            session.add(rec)
+            try:
                 session.commit()
+            except IntegrityError:
+                session.rollback()
+                rec = session.get(
+                    ProjectorCheckpointRecord,
+                    {"projector_name": identity.name, "projector_version": identity.version},
+                )
+                if rec is None:
+                    raise
             return checkpoint_from_record(rec)
 
     def get_checkpoint(self, identity: ProjectorIdentity) -> ProjectorCheckpoint | None:
@@ -135,9 +148,34 @@ class ProjectionRepository:
             )
         return rec
 
+    def _locked_required(
+        self, session: Session, identity: ProjectorIdentity
+    ) -> ProjectorCheckpointRecord:
+        stmt = (
+            select(ProjectorCheckpointRecord)
+            .where(
+                ProjectorCheckpointRecord.projector_name == identity.name,
+                ProjectorCheckpointRecord.projector_version == identity.version,
+            )
+            .with_for_update(nowait=True)
+        )
+        try:
+            rec = session.scalar(stmt)
+        except OperationalError as exc:
+            if is_lock_not_available(exc):
+                raise ProjectorBusy(
+                    f"projector {identity.name}/{identity.version} is busy"
+                ) from exc
+            raise
+        if rec is None:
+            raise ProjectorNotRegistered(
+                f"projector {identity.name}/{identity.version} is not registered"
+            )
+        return rec
+
     def pause_projector(self, identity: ProjectorIdentity) -> ProjectorCheckpoint:
         with self._session_scope() as session:
-            rec = self._required(session, identity)
+            rec = self._locked_required(session, identity)
             if rec.status == ProjectorStatus.FAILED:
                 raise ProjectorStateConflict("failed projectors cannot be paused")
             if rec.status != ProjectorStatus.PAUSED:
@@ -148,7 +186,7 @@ class ProjectionRepository:
 
     def resume_projector(self, identity: ProjectorIdentity) -> ProjectorCheckpoint:
         with self._session_scope() as session:
-            rec = self._required(session, identity)
+            rec = self._locked_required(session, identity)
             if rec.status == ProjectorStatus.FAILED:
                 raise ProjectorFailed("failed projectors require explicit retry")
             if rec.status != ProjectorStatus.IDLE:
