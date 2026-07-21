@@ -18,6 +18,12 @@ class Settings:
     ingest_max_batch_size: int = 100
     query_default_page_size: int = 50
     query_max_page_size: int = 200
+    stream_scan_batch_size: int = 100
+    stream_poll_interval_seconds: float = 0.5
+    stream_heartbeat_seconds: float = 15.0
+    stream_auth_recheck_seconds: float = 30.0
+    stream_max_connections: int = 32
+    stream_max_connections_per_collector: int = 2
 
     def __post_init__(self) -> None:
         try:
@@ -59,6 +65,36 @@ class Settings:
         object.__setattr__(self, "query_default_page_size", query_default_page_size)
         object.__setattr__(self, "query_max_page_size", query_max_page_size)
         object.__setattr__(self, "scenario_dir", Path(self.scenario_dir))
+        for name, minimum, maximum, label in (
+            ("stream_scan_batch_size", 1, 500, "CORRELIS_STREAM_SCAN_BATCH_SIZE"),
+            ("stream_max_connections", 1, 1000, "CORRELIS_STREAM_MAX_CONNECTIONS"),
+        ):
+            try:
+                value = int(getattr(self, name))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{label} is invalid") from exc
+            if not minimum <= value <= maximum:
+                raise ValueError(f"{label} is invalid")
+            object.__setattr__(self, name, value)
+        try:
+            per_collector = int(self.stream_max_connections_per_collector)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("CORRELIS_STREAM_MAX_CONNECTIONS_PER_COLLECTOR is invalid") from exc
+        if per_collector < 1 or per_collector > self.stream_max_connections:
+            raise ValueError("CORRELIS_STREAM_MAX_CONNECTIONS_PER_COLLECTOR is invalid")
+        object.__setattr__(self, "stream_max_connections_per_collector", per_collector)
+        for name, minimum, maximum, label in (
+            ("stream_poll_interval_seconds", 0.05, 60.0, "CORRELIS_STREAM_POLL_INTERVAL_SECONDS"),
+            ("stream_heartbeat_seconds", 5.0, 300.0, "CORRELIS_STREAM_HEARTBEAT_SECONDS"),
+            ("stream_auth_recheck_seconds", 5.0, 3600.0, "CORRELIS_STREAM_AUTH_RECHECK_SECONDS"),
+        ):
+            try:
+                value = float(getattr(self, name))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{label} is invalid") from exc
+            if not minimum <= value <= maximum:
+                raise ValueError(f"{label} is invalid")
+            object.__setattr__(self, name, value)
         object.__setattr__(self, "alembic_config_path", Path(self.alembic_config_path))
 
     @classmethod
@@ -75,4 +111,12 @@ class Settings:
             ingest_max_batch_size=os.getenv("CORRELIS_INGEST_MAX_BATCH_SIZE", "100"),
             query_default_page_size=os.getenv("CORRELIS_QUERY_DEFAULT_PAGE_SIZE", "50"),
             query_max_page_size=os.getenv("CORRELIS_QUERY_MAX_PAGE_SIZE", "200"),
+            stream_scan_batch_size=os.getenv("CORRELIS_STREAM_SCAN_BATCH_SIZE", "100"),
+            stream_poll_interval_seconds=os.getenv("CORRELIS_STREAM_POLL_INTERVAL_SECONDS", "0.5"),
+            stream_heartbeat_seconds=os.getenv("CORRELIS_STREAM_HEARTBEAT_SECONDS", "15.0"),
+            stream_auth_recheck_seconds=os.getenv("CORRELIS_STREAM_AUTH_RECHECK_SECONDS", "30.0"),
+            stream_max_connections=os.getenv("CORRELIS_STREAM_MAX_CONNECTIONS", "32"),
+            stream_max_connections_per_collector=os.getenv(
+                "CORRELIS_STREAM_MAX_CONNECTIONS_PER_COLLECTOR", "2"
+            ),
         )

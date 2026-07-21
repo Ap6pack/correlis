@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from correlis_schema import EvidenceRef, Observation
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,6 +34,7 @@ from .observation_sequence import (
     SequencedObservation,
     WriteDisposition,
 )
+from .observation_stream import ScopedObservationStreamPage
 
 MAX_LIST_LIMIT = 500
 
@@ -218,6 +219,106 @@ class ObservationRepository:
                 next_sequence=next_sequence,
                 high_watermark=high_watermark,
                 has_more=len(rows) > limit,
+            )
+
+    def scan_scoped_sequence_page(
+        self, tenant_id: str, source: str, *, after_sequence: int = 0, scan_limit: int = 100
+    ) -> ScopedObservationStreamPage:
+        if after_sequence < 0:
+            raise ObservationSequenceCursorError("after_sequence must be zero or positive")
+        if scan_limit < 1 or scan_limit > MAX_SEQUENCE_PAGE_LIMIT:
+            raise ObservationSequenceCursorError(
+                f"scan_limit must be between 1 and {MAX_SEQUENCE_PAGE_LIMIT}"
+            )
+        with self._session_scope() as session:
+            allocator = ObservationSequenceAllocator()
+            high_watermark = allocator.high_watermark(session)
+            max_entry = (
+                session.scalar(select(func.max(ObservationIngestEntryRecord.ingest_sequence))) or 0
+            )
+            if int(max_entry) != high_watermark:
+                raise ObservationSequenceInvariantError(
+                    "observation sequence state is inconsistent"
+                )
+            if after_sequence > high_watermark:
+                raise ObservationSequenceCursorError("after_sequence is ahead of the store")
+            stmt = (
+                select(
+                    ObservationIngestEntryRecord.ingest_sequence,
+                    ObservationIngestEntryRecord.tenant_id,
+                    ObservationIngestEntryRecord.observation_id,
+                    ObservationRecord.source,
+                )
+                .outerjoin(
+                    ObservationRecord,
+                    and_(
+                        ObservationRecord.tenant_id == ObservationIngestEntryRecord.tenant_id,
+                        ObservationRecord.observation_id
+                        == ObservationIngestEntryRecord.observation_id,
+                    ),
+                )
+                .where(
+                    ObservationIngestEntryRecord.ingest_sequence > after_sequence,
+                    ObservationIngestEntryRecord.ingest_sequence <= high_watermark,
+                )
+                .order_by(ObservationIngestEntryRecord.ingest_sequence.asc())
+                .limit(scan_limit)
+            )
+            rows = list(session.execute(stmt))
+            if not rows:
+                return ScopedObservationStreamPage(
+                    observations=(),
+                    starting_position=after_sequence,
+                    next_position=after_sequence,
+                    high_watermark=high_watermark,
+                    scanned_count=0,
+                    has_more=False,
+                )
+            expected = after_sequence + 1
+            matching_keys: list[tuple[int, str, str]] = []
+            for sequence, row_tenant, observation_id, row_source in rows:
+                seq = int(sequence)
+                if seq != expected:
+                    raise ObservationSequenceInvariantError("sequence entries are not contiguous")
+                if row_source is None:
+                    raise ObservationSequenceInvariantError(
+                        "sequence entry is missing its observation"
+                    )
+                if row_tenant == tenant_id and row_source == source:
+                    matching_keys.append((seq, row_tenant, observation_id))
+                expected += 1
+            next_position = int(rows[-1][0])
+            observations: list[SequencedObservation] = []
+            if matching_keys:
+                records = session.scalars(
+                    select(ObservationRecord).where(
+                        tuple_(ObservationRecord.tenant_id, ObservationRecord.observation_id).in_(
+                            [(t, o) for _, t, o in matching_keys]
+                        )
+                    )
+                ).all()
+                by_key = {(r.tenant_id, r.observation_id): r for r in records}
+                for seq, key_tenant, observation_id in matching_keys:
+                    record = by_key.get((key_tenant, observation_id))
+                    if record is None:
+                        raise ObservationSequenceInvariantError(
+                            "matching observation cannot be reconstructed"
+                        )
+                    try:
+                        observation = Observation.model_validate(record.payload_json)
+                    except Exception as exc:
+                        raise ObservationSequenceInvariantError(
+                            "matching observation cannot be reconstructed"
+                        ) from exc
+                    observations.append(SequencedObservation(seq, observation))
+            observations.sort(key=lambda item: item.ingest_sequence)
+            return ScopedObservationStreamPage(
+                observations=tuple(observations),
+                starting_position=after_sequence,
+                next_position=next_position,
+                high_watermark=high_watermark,
+                scanned_count=len(rows),
+                has_more=next_position < high_watermark,
             )
 
     def _ensure_evidence_matches(self, session: Session, observation: Observation) -> None:

@@ -1,4 +1,4 @@
-from .collector_auth import CollectorAuthenticator
+from .collector_auth import CollectorAuthenticator, is_collector_principal_active
 from .collector_repository import (
     CollectorAlreadyExists,
     CollectorCredentialNotFound,
@@ -37,6 +37,7 @@ from .observation_sequence import (
     ObservationWriteResult,
     SequencedObservation,
 )
+from .observation_stream import ScopedObservationStreamPage
 from .projection_repository import ProjectionRepository
 from .projection_runner import ProjectionRunner
 from .projections import (
@@ -68,6 +69,7 @@ __all__ = [
     "CollectorAuthEvent",
     "CollectorAuthenticationDecision",
     "CollectorAuthenticator",
+    "is_collector_principal_active",
     "CollectorCredential",
     "CollectorCredentialNotFound",
     "CollectorDisabled",
@@ -88,6 +90,7 @@ __all__ = [
     "ObservationWriteResult",
     "SequencedObservation",
     "ObservationRepository",
+    "ScopedObservationStreamPage",
     "WriteDisposition",
     "canonical_model_sha256",
     "create_database_engine",

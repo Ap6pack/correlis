@@ -249,3 +249,43 @@ correlis-admin projection-failures list \
   --version 1 \
   --status active
 ```
+
+## Durable observation stream
+
+Correlis exposes a collector-scoped live observation stream at `GET /api/v1/streams/observations` using server-sent events (`text/event-stream`). The endpoint uses the same bearer collector authentication as ingestion, and the authenticated collector principal supplies the tenant, collector ID, and source scope. Stream clients receive only observations for their own tenant and source; there is no analyst-wide or tenant-wide stream in this milestone.
+
+By default, a connection starts at the latest committed durable observation position, so existing history is not replayed. Use `start=earliest` to replay retained observations for the collector scope and then continue tailing new observations. Reconnects can resume with either the encrypted cursor returned in event IDs/data or the standard SSE `Last-Event-ID` header. Cursor values are client-held encrypted continuation state, not raw database sequence numbers, and the raw global ingest sequence and high watermark are never exposed.
+
+Events are emitted in deterministic durable sequence order. `observation` events contain the canonical Observation payload, while `checkpoint` events advance the cursor across global entries outside the collector's tenant/source scope. Heartbeat comments (`: keepalive`) keep idle connections active. Delivery is at least once around reconnect boundaries, so clients should tolerate duplicate observations after reconnecting from an older valid cursor.
+
+The stream uses bounded database scans and writes events directly to the HTTP response without a background broker, queue, Redis, Kafka, or fan-out publisher. Connection limits are enforced per API process globally and per collector. Long-lived streams periodically recheck credential and collector status, closing the stream if a credential is revoked or expired, a collector is disabled, or its source changes.
+
+Native browser `EventSource` cannot set an `Authorization` header. Browser clients should currently use authenticated `fetch()` streaming or another HTTP client until user-session authentication exists.
+
+### Curl latest
+
+```bash
+curl -N \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  -H "Accept: text/event-stream" \
+  http://localhost:8080/api/v1/streams/observations
+```
+
+### Replay earliest
+
+```bash
+curl -N \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  -H "Accept: text/event-stream" \
+  "http://localhost:8080/api/v1/streams/observations?start=earliest"
+```
+
+### Resume
+
+```bash
+curl -N \
+  -H "Authorization: Bearer $CORRELIS_COLLECTOR_TOKEN" \
+  -H "Accept: text/event-stream" \
+  -H "Last-Event-ID: $CORRELIS_STREAM_CURSOR" \
+  http://localhost:8080/api/v1/streams/observations
+```

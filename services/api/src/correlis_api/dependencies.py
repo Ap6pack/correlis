@@ -44,3 +44,10 @@ def get_database_session(request: Request) -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+def get_database_session_factory(request: Request):
+    session_factory = getattr(request.app.state, "database_session_factory", None)
+    if session_factory is None:
+        raise HTTPException(status_code=503, detail=DATABASE_NOT_CONFIGURED_DETAIL)
+    return session_factory
