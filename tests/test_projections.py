@@ -169,3 +169,107 @@ def test_failed_lifecycle_controls_rejected(sf, clock):
         repo.pause_projector(ident())
     with pytest.raises(ProjectorFailed):
         repo.resume_projector(ident())
+
+
+def test_sqlalchemy_handler_error_propagates_without_poison(sf, clock):
+    from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    repo = ProjectionRepository(sf, clock=clock)
+    repo.register_projector(ident())
+    ObservationRepository(sf).put(observation())
+
+    with pytest.raises(SQLAlchemyError):
+        ProjectionRunner(sf, clock=clock).run_batch(
+            ident(), lambda session, item: session.execute(text("select * from missing_table"))
+        )
+
+    cp = repo.get_checkpoint(ident())
+    assert cp.status == "idle"
+    assert cp.last_processed_sequence == 0
+    assert cp.last_failure_sequence is None
+    assert repo.list_failures(ident(), status=ProjectorFailureStatus.ACTIVE) == []
+
+
+def test_unexpected_python_exception_is_sanitized(sf, clock):
+    repo = ProjectionRepository(sf, clock=clock)
+    repo.register_projector(ident())
+    ObservationRepository(sf).put(observation())
+
+    result = ProjectionRunner(sf, clock=clock).run_batch(
+        ident(), lambda session, item: (_ for _ in ()).throw(ValueError("secret raw value"))
+    )
+
+    assert result.outcome == ProjectionRunOutcome.FAILED
+    failure = repo.list_failures(ident(), status=ProjectorFailureStatus.ACTIVE)[0]
+    assert failure.error_code == "unhandled_projection_error"
+    assert failure.error_type == "ValueError"
+    assert failure.safe_message == "Projection handler failed unexpectedly."
+    assert "secret" not in failure.safe_message
+
+
+def test_failed_checkpoint_missing_active_failure_is_invariant(sf, clock):
+    from correlis_store import ProjectionInvariantError
+    from correlis_store.models import ProjectorFailureRecord
+
+    repo = ProjectionRepository(sf, clock=clock)
+    repo.register_projector(ident())
+    ObservationRepository(sf).put(observation())
+    ProjectionRunner(sf, clock=clock).run_batch(
+        ident(), lambda session, item: (_ for _ in ()).throw(ProjectionHandlerError("bad", "safe"))
+    )
+    with sf.begin() as session:
+        session.query(ProjectorFailureRecord).delete()
+
+    called = False
+
+    def handler(session, item):
+        nonlocal called
+        called = True
+
+    with pytest.raises(ProjectionInvariantError):
+        ProjectionRunner(sf, clock=clock).run_batch(ident(), handler, retry_failed=True)
+    assert not called
+    assert repo.get_checkpoint(ident()).status == "failed"
+
+
+def test_repeated_failure_increments_attempt_count(sf, clock):
+    repo = ProjectionRepository(sf, clock=clock)
+    repo.register_projector(ident())
+    ObservationRepository(sf).put(observation())
+    runner = ProjectionRunner(sf, clock=clock)
+    runner.run_batch(
+        ident(), lambda session, item: (_ for _ in ()).throw(ProjectionHandlerError("bad", "safe"))
+    )
+    first = repo.list_failures(ident(), status=ProjectorFailureStatus.ACTIVE)[0]
+    runner.run_batch(
+        ident(),
+        lambda session, item: (_ for _ in ()).throw(ProjectionHandlerError("bad", "safe again")),
+        retry_failed=True,
+    )
+    second = repo.list_failures(ident(), status=ProjectorFailureStatus.ACTIVE)[0]
+    assert second.attempt_count == 2
+    assert second.first_failed_at == first.first_failed_at
+    assert second.last_failed_at > first.last_failed_at
+
+
+def test_multiple_observations_limit_and_distinct_projectors(sf, clock):
+    repo = ProjectionRepository(sf, clock=clock)
+    repo.register_projector(ident())
+    repo.register_projector(ProjectorIdentity("relationship-projection", "1"))
+    ObservationRepository(sf).put(observation("obs-1", ev=evidence("ev-1", "a" * 64)))
+    ObservationRepository(sf).put(observation("obs-2", ev=evidence("ev-2", "b" * 64)))
+    seen = []
+
+    def handler(session, item):
+        seen.append(item.observation.id)
+
+    result = ProjectionRunner(sf, clock=clock).run_batch(ident(), handler, limit=1)
+    assert result.outcome == ProjectionRunOutcome.ADVANCED
+    assert seen == ["obs-1"]
+    assert repo.get_checkpoint(ident()).last_processed_sequence == 1
+    other = ProjectorIdentity("relationship-projection", "1")
+    assert repo.get_checkpoint(other).last_processed_sequence == 0
+    result = ProjectionRunner(sf, clock=clock).run_batch(ident(), handler)
+    assert result.outcome == ProjectionRunOutcome.CAUGHT_UP
+    assert seen == ["obs-1", "obs-2"]

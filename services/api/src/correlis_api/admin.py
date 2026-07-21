@@ -97,6 +97,7 @@ def build_parser():
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    engine = None
     try:
         engine, sf = _session_resources()
         r = CollectorRepository(sf)
@@ -133,7 +134,6 @@ def main(argv=None) -> int:
                     sort_keys=True,
                 )
             )
-            engine.dispose()
             return 0
         elif args.group == "credentials" and args.cmd == "list":
             out = r.list_credentials(args.tenant_id, args.collector_id)
@@ -163,11 +163,13 @@ def main(argv=None) -> int:
         else:
             raise RuntimeError("unsupported command")
         print(json.dumps(_jsonable(out), sort_keys=True))
-        engine.dispose()
         return 0
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    finally:
+        if engine is not None:
+            engine.dispose()
 
 
 if __name__ == "__main__":
