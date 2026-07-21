@@ -37,6 +37,26 @@ from .observation_sequence import (
     ObservationWriteResult,
     SequencedObservation,
 )
+from .projection_repository import ProjectionRepository
+from .projection_runner import ProjectionRunner
+from .projections import (
+    ProjectionHandler,
+    ProjectionHandlerError,
+    ProjectionInvariantError,
+    ProjectionRunOutcome,
+    ProjectionRunResult,
+    ProjectorAlreadyRegistered,
+    ProjectorBusy,
+    ProjectorCheckpoint,
+    ProjectorFailed,
+    ProjectorFailure,
+    ProjectorFailureStatus,
+    ProjectorIdentity,
+    ProjectorNotRegistered,
+    ProjectorPaused,
+    ProjectorStateConflict,
+    ProjectorStatus,
+)
 from .repository import ObservationRepository, WriteDisposition
 
 __all__ = [
@@ -72,4 +92,22 @@ __all__ = [
     "canonical_model_sha256",
     "create_database_engine",
     "create_session_factory",
+    "ProjectionRepository",
+    "ProjectionRunner",
+    "ProjectionHandler",
+    "ProjectionHandlerError",
+    "ProjectionInvariantError",
+    "ProjectionRunOutcome",
+    "ProjectionRunResult",
+    "ProjectorAlreadyRegistered",
+    "ProjectorBusy",
+    "ProjectorCheckpoint",
+    "ProjectorFailed",
+    "ProjectorFailure",
+    "ProjectorFailureStatus",
+    "ProjectorIdentity",
+    "ProjectorNotRegistered",
+    "ProjectorPaused",
+    "ProjectorStateConflict",
+    "ProjectorStatus",
 ]

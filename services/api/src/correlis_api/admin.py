@@ -8,7 +8,14 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from correlis_store import CollectorRepository, create_database_engine, create_session_factory
+from correlis_store import (
+    CollectorRepository,
+    ProjectionRepository,
+    ProjectorFailureStatus,
+    ProjectorIdentity,
+    create_database_engine,
+    create_session_factory,
+)
 
 
 def _jsonable(v):
@@ -25,11 +32,12 @@ def _jsonable(v):
     return v
 
 
-def _repo():
+def _session_resources():
     url = os.getenv("CORRELIS_DATABASE_URL")
     if not url:
         raise RuntimeError("CORRELIS_DATABASE_URL is required")
-    return CollectorRepository(create_session_factory(create_database_engine(url)))
+    engine = create_database_engine(url)
+    return engine, create_session_factory(engine)
 
 
 def _dt(v):
@@ -68,13 +76,31 @@ def build_parser():
     x.add_argument("--tenant-id", required=True)
     x.add_argument("--collector-id")
     x.add_argument("--limit", type=int, default=100)
+    pr = sub.add_parser("projectors").add_subparsers(dest="cmd", required=True)
+    x = pr.add_parser("register")
+    x.add_argument("--name", required=True)
+    x.add_argument("--version", required=True)
+    x = pr.add_parser("list")
+    x.add_argument("--limit", type=int, default=100)
+    for n in ("show", "pause", "resume"):
+        x = pr.add_parser(n)
+        x.add_argument("--name", required=True)
+        x.add_argument("--version", required=True)
+    pf = sub.add_parser("projection-failures").add_subparsers(dest="cmd", required=True)
+    x = pf.add_parser("list")
+    x.add_argument("--name", required=True)
+    x.add_argument("--version", required=True)
+    x.add_argument("--status", choices=["active", "resolved", "all"], default="active")
+    x.add_argument("--limit", type=int, default=100)
     return p
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        r = _repo()
+        engine, sf = _session_resources()
+        r = CollectorRepository(sf)
+        projections = ProjectionRepository(sf)
         if args.group == "collectors" and args.cmd == "create":
             out = r.create_collector(
                 tenant_id=args.tenant_id,
@@ -107,6 +133,7 @@ def main(argv=None) -> int:
                     sort_keys=True,
                 )
             )
+            engine.dispose()
             return 0
         elif args.group == "credentials" and args.cmd == "list":
             out = r.list_credentials(args.tenant_id, args.collector_id)
@@ -116,9 +143,27 @@ def main(argv=None) -> int:
             out = r.list_auth_events(
                 tenant_id=args.tenant_id, collector_id=args.collector_id, limit=args.limit
             )
+        elif args.group == "projectors" and args.cmd == "register":
+            out = projections.register_projector(ProjectorIdentity(args.name, args.version))
+        elif args.group == "projectors" and args.cmd == "list":
+            out = projections.list_checkpoints(limit=args.limit)
+        elif args.group == "projectors" and args.cmd == "show":
+            out = projections.get_checkpoint(ProjectorIdentity(args.name, args.version))
+            if out is None:
+                raise RuntimeError("projector is not registered")
+        elif args.group == "projectors" and args.cmd == "pause":
+            out = projections.pause_projector(ProjectorIdentity(args.name, args.version))
+        elif args.group == "projectors" and args.cmd == "resume":
+            out = projections.resume_projector(ProjectorIdentity(args.name, args.version))
+        elif args.group == "projection-failures" and args.cmd == "list":
+            status = None if args.status == "all" else ProjectorFailureStatus(args.status)
+            out = projections.list_failures(
+                ProjectorIdentity(args.name, args.version), status=status, limit=args.limit
+            )
         else:
             raise RuntimeError("unsupported command")
         print(json.dumps(_jsonable(out), sort_keys=True))
+        engine.dispose()
         return 0
     except Exception as exc:
         print(str(exc), file=sys.stderr)

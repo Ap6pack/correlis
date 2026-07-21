@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Float,
+    ForeignKey,
     ForeignKeyConstraint,
     Index,
     SmallInteger,
@@ -100,6 +101,89 @@ class ObservationIngestEntryRecord(Base):
             ["observations.tenant_id", "observations.observation_id"],
         ),
         Index("ix_observation_ingest_entries_tenant_sequence", "tenant_id", "ingest_sequence"),
+    )
+
+
+class ProjectorCheckpointRecord(Base):
+    __tablename__ = "projector_checkpoints"
+
+    projector_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    projector_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    last_processed_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_failure_sequence: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "last_processed_sequence >= 0", name="ck_projector_checkpoints_sequence_nonnegative"
+        ),
+        CheckConstraint(
+            "status IN ('idle', 'failed', 'paused')", name="ck_projector_checkpoints_status"
+        ),
+        CheckConstraint(
+            "((status = 'failed' AND last_failure_sequence IS NOT NULL "
+            "AND last_failure_sequence > last_processed_sequence) OR "
+            "(status <> 'failed' AND last_failure_sequence IS NULL))",
+            name="ck_projector_checkpoints_failure_state",
+        ),
+    )
+
+
+class ProjectorFailureRecord(Base):
+    __tablename__ = "projector_failures"
+
+    projector_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    projector_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ingest_sequence: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("observation_ingest_entries.ingest_sequence"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    observation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(nullable=False)
+    error_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    error_type: Mapped[str] = mapped_column(String(256), nullable=False)
+    safe_message: Mapped[str] = mapped_column(String(2048), nullable=False)
+    first_failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projector_name", "projector_version"],
+            ["projector_checkpoints.projector_name", "projector_checkpoints.projector_version"],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        CheckConstraint("status IN ('active', 'resolved')", name="ck_projector_failures_status"),
+        CheckConstraint("attempt_count >= 1", name="ck_projector_failures_attempt_count"),
+        CheckConstraint("error_code GLOB '[a-z0-9_]*'", name="ck_projector_failures_error_code"),
+        CheckConstraint(
+            "((status = 'active' AND resolved_at IS NULL) OR "
+            "(status = 'resolved' AND resolved_at IS NOT NULL))",
+            name="ck_projector_failures_resolved_state",
+        ),
+        Index(
+            "ix_projector_failures_projector_status_last_failed",
+            "projector_name",
+            "projector_version",
+            "status",
+            "last_failed_at",
+        ),
+        Index("ix_projector_failures_status_last_failed", "status", "last_failed_at"),
+        Index("ix_projector_failures_ingest_sequence", "ingest_sequence"),
     )
 
 
