@@ -13,6 +13,7 @@ dependencies = [
   "correlis-ontology>=0.1.0",
   "fastapi>=0.128,<1",
   "uvicorn[standard]>=0.48,<1",
+  "cryptography>=49,<50",
 ]
 
 [project.scripts]

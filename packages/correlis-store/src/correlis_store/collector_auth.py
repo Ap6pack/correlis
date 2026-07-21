@@ -122,3 +122,34 @@ class CollectorAuthenticator:
             ),
             AuthenticationReasonCode.AUTHENTICATED,
         )
+
+
+def is_collector_principal_active(
+    session: Session, principal: AuthenticatedCollectorPrincipal, *, now: datetime | None = None
+) -> bool:
+    ts = now or _utcnow()
+    cred = session.get(CollectorCredentialRecord, principal.credential_id)
+    if cred is None:
+        return False
+    if cred.tenant_id != principal.tenant_id or cred.collector_id != principal.collector_id:
+        return False
+    if cred.revoked_at is not None:
+        return False
+    expires_at = cred.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at is not None and expires_at <= ts:
+        return False
+    collector = session.get(
+        CollectorRecord, {"tenant_id": principal.tenant_id, "collector_id": principal.collector_id}
+    )
+    if collector is None:
+        return False
+    if (
+        collector.tenant_id != principal.tenant_id
+        or collector.collector_id != principal.collector_id
+    ):
+        return False
+    if collector.status != CollectorStatus.ENABLED.value:
+        return False
+    return collector.source == principal.source

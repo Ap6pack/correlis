@@ -41,10 +41,12 @@ from .health import (
 )
 from .ingestion import router as ingestion_router
 from .observation_queries import router as observation_queries_router
+from .observation_stream import router as observation_stream_router
 from .request_context import RequestIdMiddleware
 from .scenarios import ScenarioNotFoundError, ScenarioRepository
 from .scene import SceneBuilder, build_scene
 from .settings import Settings
+from .stream_connections import ObservationStreamConnectionLimiter
 
 
 class LiveHealthResponse(BaseModel):
@@ -118,6 +120,10 @@ def create_app(
         application.state.database_engine = None
         application.state.database_session_factory = None
         application.state.owns_database_engine = False
+        application.state.observation_stream_limiter = ObservationStreamConnectionLimiter(
+            max_connections=resolved_settings.stream_max_connections,
+            max_connections_per_collector=resolved_settings.stream_max_connections_per_collector,
+        )
 
         if injected_engine is not None:
             application.state.database_engine = injected_engine
@@ -157,6 +163,10 @@ def create_app(
     api.state.database_engine = injected_engine
     api.state.database_session_factory = None
     api.state.owns_database_engine = False
+    api.state.observation_stream_limiter = ObservationStreamConnectionLimiter(
+        max_connections=resolved_settings.stream_max_connections,
+        max_connections_per_collector=resolved_settings.stream_max_connections_per_collector,
+    )
     api.add_middleware(
         IngestionBodyLimitMiddleware, max_body_bytes=resolved_settings.ingest_max_body_bytes
     )
@@ -182,6 +192,26 @@ def create_app(
                     "detail": {
                         "code": "request_validation_failed",
                         "message": "The observation request failed validation.",
+                        "errors": errors,
+                    }
+                },
+            )
+
+        if request.method == "GET" and request.url.path == "/api/v1/streams/observations":
+            errors = [
+                {
+                    "location": list(error.get("loc", ())),
+                    "type": str(error.get("type", "validation_error")),
+                    "message": str(error.get("msg", "Input failed validation")),
+                }
+                for error in exc.errors()
+            ]
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": {
+                        "code": "stream_validation_failed",
+                        "message": "The observation stream request failed validation.",
                         "errors": errors,
                     }
                 },
@@ -214,6 +244,7 @@ def create_app(
 
     api.include_router(ingestion_router)
     api.include_router(observation_queries_router)
+    api.include_router(observation_stream_router)
 
     @api.get("/health", response_model=LiveHealthResponse)
     async def health() -> LiveHealthResponse:

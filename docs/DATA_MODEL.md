@@ -225,3 +225,9 @@ Checkpoint advancement is global because projectors scan the durable global obse
 Retained operational history for poison observations. The composite primary key is `projector_name, projector_version, ingest_sequence`; records reference the projector checkpoint, the ingest sequence entry, and the immutable observation. Active failures block normal projector execution. Successful retry changes the failure to `resolved` and sets `resolved_at`, but the record is not deleted.
 
 Projector failures do not mutate immutable observations, evidence, or the global ingest sequence. They contain safe operator-facing error classifications only, not observation payloads or evidence locators.
+
+## Durable observation stream state
+
+The durable observation stream introduces no new database table. Stream order comes from the existing `observation_ingest_entries` durable sequence. Client continuation state is held in encrypted stream cursors returned in SSE event IDs and data.
+
+A stream cursor position is not observation event time and is not a projector checkpoint. It represents the last global durable sequence entry scanned for a collector-scoped view, including entries outside the collector's tenant/source scope. Projector checkpoints and projector failure records remain separate, and projector failures do not block observation-stream replay.
