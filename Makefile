@@ -34,7 +34,7 @@ export CORRELIS_STREAM_MAX_CONNECTIONS_PER_COLLECTOR
 
 install:
 	$(PYTHON) -m venv $(VENV)
-	$(PIP) install -e packages/correlis-schema -e packages/correlis-ontology -e packages/correlis-store -e 'services/api[dev]'
+	$(PIP) install --quiet -e packages/correlis-schema -e packages/correlis-ontology -e packages/correlis-store -e 'services/api[dev]'
 
 local-setup: install
 	PYTHONPATH=$(PYTHONPATH) $(PY) scripts/bootstrap_local.py
