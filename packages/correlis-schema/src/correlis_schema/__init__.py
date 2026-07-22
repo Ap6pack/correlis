@@ -6,6 +6,7 @@ from .actions import (
     OperationalAction,
     OperationalActionType,
 )
+from .identifiers import relationship_id
 from .models import (
     AttackScene,
     EntityRef,
@@ -41,6 +42,7 @@ __all__ = [
     "ProvenanceClass",
     "Relationship",
     "RelationshipType",
+    "relationship_id",
     "SceneDelta",
     "Severity",
     "utc_now",

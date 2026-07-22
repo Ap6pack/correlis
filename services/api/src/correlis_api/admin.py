@@ -8,7 +8,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from correlis_schema import EntityType
+from correlis_schema import EntityType, RelationshipType
 from correlis_store import (
     CollectorRepository,
     EntityProjectionHandler,
@@ -17,9 +17,12 @@ from correlis_store import (
     ProjectionRunner,
     ProjectorFailureStatus,
     ProjectorIdentity,
+    RelationshipProjectionHandler,
+    RelationshipRepository,
     create_database_engine,
     create_session_factory,
     entity_projector_identity,
+    relationship_projector_identity,
 )
 
 
@@ -97,6 +100,15 @@ def build_parser():
     x.add_argument("--version", required=True)
     x.add_argument("--status", choices=["active", "resolved", "all"], default="active")
     x.add_argument("--limit", type=int, default=100)
+    rp = sub.add_parser("relationship-projection").add_subparsers(dest="cmd", required=True)
+    x = rp.add_parser("register")
+    x.add_argument("--version", required=True)
+    x = rp.add_parser("run")
+    x.add_argument("--version", required=True)
+    x.add_argument("--limit", type=int, default=100)
+    x.add_argument("--retry-failed", action="store_true")
+    x = rp.add_parser("show")
+    x.add_argument("--version", required=True)
     ep = sub.add_parser("entity-projection").add_subparsers(dest="cmd", required=True)
     x = ep.add_parser("register")
     x.add_argument("--version", required=True)
@@ -124,6 +136,25 @@ def build_parser():
     x.add_argument("--observation-limit", type=int, default=100)
     x.add_argument("--evidence-limit", type=int, default=100)
     x.add_argument("--identity-claim-limit", type=int, default=100)
+    rels = sub.add_parser("relationships").add_subparsers(dest="cmd", required=True)
+    x = rels.add_parser("list")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--relationship-type")
+    x.add_argument("--source-entity-id")
+    x.add_argument("--target-entity-id")
+    x.add_argument("--after-relationship-id")
+    x.add_argument("--limit", type=int, default=100)
+    x = rels.add_parser("show")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--relationship-id", required=True)
+    x = rels.add_parser("lineage")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--relationship-id", required=True)
+    x.add_argument("--observation-limit", type=int, default=100)
+    x.add_argument("--evidence-limit", type=int, default=100)
     return p
 
 
@@ -135,6 +166,7 @@ def main(argv=None) -> int:
         r = CollectorRepository(sf)
         projections = ProjectionRepository(sf)
         entities = EntityRepository(sf)
+        relationships = RelationshipRepository(sf)
         if args.group == "collectors" and args.cmd == "create":
             out = r.create_collector(
                 tenant_id=args.tenant_id,
@@ -193,6 +225,22 @@ def main(argv=None) -> int:
             out = projections.list_failures(
                 ProjectorIdentity(args.name, args.version), status=status, limit=args.limit
             )
+        elif args.group == "relationship-projection" and args.cmd == "register":
+            out = projections.register_projector(relationship_projector_identity(args.version))
+        elif args.group == "relationship-projection" and args.cmd == "show":
+            out = projections.get_checkpoint(relationship_projector_identity(args.version))
+            if out is None:
+                raise RuntimeError("projector is not registered")
+        elif args.group == "relationship-projection" and args.cmd == "run":
+            handler = RelationshipProjectionHandler(projection_version=args.version)
+            out = ProjectionRunner(sf).run_batch(
+                handler.projector_identity,
+                handler,
+                limit=args.limit,
+                retry_failed=args.retry_failed,
+            )
+            print(json.dumps(_jsonable(out), sort_keys=True))
+            return 0 if str(out.outcome) in {"advanced", "caught_up"} else 1
         elif args.group == "entity-projection" and args.cmd == "register":
             out = projections.register_projector(entity_projector_identity(args.version))
         elif args.group == "entity-projection" and args.cmd == "show":
@@ -233,6 +281,33 @@ def main(argv=None) -> int:
             )
             if out is None:
                 raise RuntimeError("entity not found")
+        elif args.group == "relationships" and args.cmd == "list":
+            rt = RelationshipType(args.relationship_type) if args.relationship_type else None
+            out = relationships.list_relationships(
+                args.projection_version,
+                args.tenant_id,
+                relationship_type=rt,
+                source_entity_id=args.source_entity_id,
+                target_entity_id=args.target_entity_id,
+                after_relationship_id=args.after_relationship_id,
+                limit=args.limit,
+            )
+        elif args.group == "relationships" and args.cmd == "show":
+            out = relationships.get_relationship(
+                args.projection_version, args.tenant_id, args.relationship_id
+            )
+            if out is None:
+                raise RuntimeError("relationship not found")
+        elif args.group == "relationships" and args.cmd == "lineage":
+            out = relationships.get_lineage(
+                args.projection_version,
+                args.tenant_id,
+                args.relationship_id,
+                observation_limit=args.observation_limit,
+                evidence_limit=args.evidence_limit,
+            )
+            if out is None:
+                raise RuntimeError("relationship not found")
         else:
             raise RuntimeError("unsupported command")
         print(json.dumps(_jsonable(out), sort_keys=True))

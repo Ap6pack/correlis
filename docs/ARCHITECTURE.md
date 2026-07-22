@@ -230,3 +230,11 @@ The entity projector is a concrete bounded projection over immutable observation
 Within one projected identity, entity type is immutable. Current label and attributes are selected by latest observation event time, with durable ingest sequence as the tie-breaker. Attributes are replaced as a complete submitted snapshot and are not merged field by field. First and last seen use source event time, while ingest sequence boundaries preserve processing lineage.
 
 The projection records observation lineage, evidence lineage, and exact ontology identity-key claims. Identity claims are evidence for future attributable entity-resolution work; they do not perform automatic entity resolution, fuzzy matching, aliasing, or merging. Entity output and checkpoint advancement are committed atomically by the projection runtime. Operators execute bounded CLI runs explicitly today; future worker execution can use the same projector identity and handler boundary.
+
+## Persistent direct relationship projection
+
+The relationship projection is a separate versioned projector named `relationship-projection`. Operators explicitly register and run each version; no automatic registration, background worker, scheduler, queue, or HTTP relationship API is added. The projector reads Correlis's durable global observation ingest sequence with the existing transactional `ProjectionRunner`, so relationship writes and checkpoint advancement commit atomically and deterministic poison observations are recorded with sanitized failure messages.
+
+The projector is operationally independent from the entity projection. It validates the subject, object, and directed relationship against the configured ontology and persists endpoint IDs and endpoint entity types directly from the canonical observation. It intentionally has no foreign key to `entities`; later graph-building can choose compatible entity and relationship projection versions without requiring relationship materialization to wait for entity projection catch-up.
+
+Only explicit observed relationships are materialized: `observation.relationship is not None` and `observation.object is not None`. The persistent projector does not implement derived correlation, analytic or AI-generated relationships, analyst decisions, incidents, Attack Scene persistence, entity merging, or automatic entity resolution.

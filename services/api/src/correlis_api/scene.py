@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime
 
 from correlis_ontology import CORE_ONTOLOGY, OntologyRegistry
@@ -14,21 +13,8 @@ from correlis_schema import (
     Relationship,
     RelationshipType,
     SceneDelta,
+    relationship_id,
 )
-
-
-def relationship_id(
-    tenant_id: str,
-    source_id: str,
-    relation: RelationshipType,
-    target_id: str,
-    provenance: ProvenanceClass,
-    rule_id: str | None,
-) -> str:
-    material = "|".join(
-        [tenant_id, source_id, relation.value, target_id, provenance.value, rule_id or "direct"]
-    )
-    return hashlib.sha256(material.encode()).hexdigest()[:32]
 
 
 class SceneBuilder:
