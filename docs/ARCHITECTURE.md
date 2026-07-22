@@ -222,3 +222,11 @@ Stream leases are released from both the generator `finally` block and the respo
 Authorization revalidation is performed when the configured deadline elapses before scans, observations, checkpoints, and heartbeat comments. The security boundary is per emitted event: a collector whose credentials or collector record are revoked, expired, disabled, removed, or source-reassigned can finish the event already in flight, but receives no following observation or checkpoint once revalidation detects inactivity. Prefetched pages are bounded and do not bypass this check.
 
 The stream keeps direct response backpressure. It does not use queues, background producer tasks, fan-out caches, brokers, or long-lived database sessions. A scan returns one bounded page, the response iterator yields directly from that page, and the next scan occurs only after the page has been consumed. Reconnect delivery remains at least once, with encrypted collector-scoped `ocs1.*` cursors and no raw global sequence exposure in event payloads.
+
+## Persistent entity projector boundary
+
+The entity projector is a concrete bounded projection over immutable observations. Output tables are version-qualified so `entity-projection/1` and `entity-projection/2` can coexist and rebuild independently. Entity identity is the projection version, tenant ID, and submitted entity ID. The canonical entity key is a deterministic SHA-256 digest of compact sorted JSON containing only the entity type and submitted ID.
+
+Within one projected identity, entity type is immutable. Current label and attributes are selected by latest observation event time, with durable ingest sequence as the tie-breaker. Attributes are replaced as a complete submitted snapshot and are not merged field by field. First and last seen use source event time, while ingest sequence boundaries preserve processing lineage.
+
+The projection records observation lineage, evidence lineage, and exact ontology identity-key claims. Identity claims are evidence for future attributable entity-resolution work; they do not perform automatic entity resolution, fuzzy matching, aliasing, or merging. Entity output and checkpoint advancement are committed atomically by the projection runtime. Operators execute bounded CLI runs explicitly today; future worker execution can use the same projector identity and handler boundary.

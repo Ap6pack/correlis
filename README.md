@@ -301,3 +301,32 @@ Authorization revalidation is deadline-based and occurs before scans, before eac
 The stream preserves direct backpressure: there is no queue, producer task, broker, fan-out cache, or background poller. The next bounded page is not scanned until the response iterator resumes through every event from the current page. Database sessions remain short-lived and are not held while waiting on a client.
 
 Delivery remains at least once around reconnect boundaries. Stream cursors remain encrypted `ocs1.*` tokens scoped to the collector tenant, collector ID, and source, and raw global sequence values are not exposed in collector-facing payloads.
+
+## Persistent entity projection
+
+Correlis includes a persistent entity projection that consumes the durable observation sequence through the existing transactional `ProjectionRunner`. Entity identity is tenant-qualified and uses the submitted entity ID within an explicit projector version. Entity type is immutable for that identity, and a conflicting type stops the projector with a durable failure instead of merging or rewriting records.
+
+The projection stores a deterministic canonical entity key derived from entity type and submitted entity ID. First-seen and last-seen values use the source observation event time. Current label and attributes use the latest event time, with ingest sequence as a deterministic tie-breaker. Attribute snapshots are replaced completely rather than merged field by field so stale keys do not linger.
+
+Observation lineage and evidence lineage are retained for projected entities. Ontology identity keys produce exact identity-key claims for future entity-resolution work, but those claims do not automatically merge entities. Different entity-projector versions can coexist side by side and rebuild independently. No worker runs automatically, and no public entity API exists yet; operators run bounded local administrative commands explicitly.
+
+```bash
+correlis-admin entity-projection register --version 1
+```
+
+```bash
+correlis-admin entity-projection run --version 1 --limit 100
+```
+
+```bash
+correlis-admin entities list \
+  --projection-version 1 \
+  --tenant-id tenant-a
+```
+
+```bash
+correlis-admin entities lineage \
+  --projection-version 1 \
+  --tenant-id tenant-a \
+  --entity-id asset-123
+```

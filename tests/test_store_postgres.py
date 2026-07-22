@@ -10,6 +10,8 @@ from alembic import command
 from alembic.config import Config
 from correlis_schema import EntityRef, EntityType, EvidenceRef, EvidenceType, Observation
 from correlis_store import (
+    EntityProjectionHandler,
+    EntityRepository,
     ImmutableRecordConflict,
     ObservationRepository,
     ObservationSequenceAllocator,
@@ -24,11 +26,13 @@ from correlis_store import (
     WriteDisposition,
 )
 from correlis_store.models import (
+    EntityRecord,
     EvidenceRefRecord,
     ObservationEvidenceRecord,
     ObservationIngestEntryRecord,
     ObservationIngestSequenceStateRecord,
     ObservationRecord,
+    ProjectorFailureRecord,
 )
 from sqlalchemy import (
     BigInteger,
@@ -125,6 +129,10 @@ def reset_observation_store(connection) -> None:
         text(
             """
             TRUNCATE TABLE
+                entity_identity_claims,
+                entity_evidence,
+                entity_observations,
+                entities,
                 test_projection_effects,
                 projector_failures,
                 projector_checkpoints,
@@ -149,6 +157,10 @@ def reset_observation_store(connection) -> None:
     counts_by_table = {
         table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
         for table in (
+            "entity_identity_claims",
+            "entity_evidence",
+            "entity_observations",
+            "entities",
             "test_projection_effects",
             "projector_failures",
             "projector_checkpoints",
@@ -159,6 +171,10 @@ def reset_observation_store(connection) -> None:
         )
     }
     assert counts_by_table == {
+        "entity_identity_claims": 0,
+        "entity_evidence": 0,
+        "entity_observations": 0,
+        "entities": 0,
         "test_projection_effects": 0,
         "projector_failures": 0,
         "projector_checkpoints": 0,
@@ -312,6 +328,110 @@ def test_postgresql_schema_contracts(session_factory, migrated_engine):
     }
     assert ("tenant_id", "ingest_sequence") in entry_indexes
 
+    entity_tables = {"entities", "entity_observations", "entity_evidence", "entity_identity_claims"}
+    assert entity_tables.issubset(set(inspector.get_table_names()))
+
+    entity_pk = inspector.get_pk_constraint("entities")
+    assert entity_pk["constrained_columns"] == ["projection_version", "tenant_id", "entity_id"]
+    entity_columns = {column["name"]: column for column in inspector.get_columns("entities")}
+    assert isinstance(entity_columns["attributes_json"]["type"], JSONB)
+    for column in ("first_ingest_sequence", "last_ingest_sequence", "latest_claim_ingest_sequence"):
+        assert isinstance(entity_columns[column]["type"], BIGINT)
+    for column in (
+        "first_seen",
+        "last_seen",
+        "latest_claim_event_time",
+        "created_at",
+        "updated_at",
+    ):
+        assert entity_columns[column]["type"].timezone is True
+    entity_checks = " ".join(check["name"] for check in inspector.get_check_constraints("entities"))
+    for name in (
+        "ck_entities_canonical_key_length",
+        "ck_entities_sequence_order",
+        "ck_entities_seen_order",
+    ):
+        assert name in entity_checks
+    assert ["projection_version", "tenant_id", "canonical_key"] in [
+        unique["column_names"] for unique in inspector.get_unique_constraints("entities")
+    ]
+    entity_indexes = {index["name"] for index in inspector.get_indexes("entities")}
+    assert {
+        "ix_entities_projection_tenant_type_id",
+        "ix_entities_projection_tenant_last_seen",
+        "ix_entities_projection_tenant_canonical_key",
+    } <= entity_indexes
+
+    obs_pk = inspector.get_pk_constraint("entity_observations")
+    assert obs_pk["constrained_columns"] == [
+        "projection_version",
+        "tenant_id",
+        "entity_id",
+        "observation_id",
+        "role",
+    ]
+    obs_fks = inspector.get_foreign_keys("entity_observations")
+    assert ["projection_version", "tenant_id", "entity_id"] in [
+        fk["constrained_columns"] for fk in obs_fks
+    ]
+    assert ["tenant_id", "observation_id"] in [fk["constrained_columns"] for fk in obs_fks]
+    assert ["ingest_sequence"] in [fk["constrained_columns"] for fk in obs_fks]
+    obs_checks = " ".join(
+        check["name"] for check in inspector.get_check_constraints("entity_observations")
+    )
+    assert "ck_entity_observations_role" in obs_checks
+    obs_indexes = {index["name"] for index in inspector.get_indexes("entity_observations")}
+    assert {
+        "ix_entity_observations_entity_sequence",
+        "ix_entity_observations_observation",
+        "ix_entity_observations_sequence",
+    } <= obs_indexes
+
+    evidence_pk = inspector.get_pk_constraint("entity_evidence")
+    assert evidence_pk["constrained_columns"] == [
+        "projection_version",
+        "tenant_id",
+        "entity_id",
+        "evidence_id",
+    ]
+    evidence_fks = inspector.get_foreign_keys("entity_evidence")
+    assert ["projection_version", "tenant_id", "entity_id"] in [
+        fk["constrained_columns"] for fk in evidence_fks
+    ]
+    assert ["tenant_id", "evidence_id"] in [fk["constrained_columns"] for fk in evidence_fks]
+    evidence_checks = " ".join(
+        check["name"] for check in inspector.get_check_constraints("entity_evidence")
+    )
+    assert "ck_entity_evidence_seen_order" in evidence_checks
+    evidence_indexes = {index["name"] for index in inspector.get_indexes("entity_evidence")}
+    assert {"ix_entity_evidence_entity", "ix_entity_evidence_evidence"} <= evidence_indexes
+
+    claim_pk = inspector.get_pk_constraint("entity_identity_claims")
+    assert claim_pk["constrained_columns"] == [
+        "projection_version",
+        "tenant_id",
+        "entity_id",
+        "identity_key_name",
+        "value_sha256",
+    ]
+    claim_columns = {
+        column["name"]: column for column in inspector.get_columns("entity_identity_claims")
+    }
+    assert isinstance(claim_columns["value_json"]["type"], JSONB)
+    claim_fks = inspector.get_foreign_keys("entity_identity_claims")
+    assert ["projection_version", "tenant_id", "entity_id"] in [
+        fk["constrained_columns"] for fk in claim_fks
+    ]
+    claim_checks = " ".join(
+        check["name"] for check in inspector.get_check_constraints("entity_identity_claims")
+    )
+    assert "ck_entity_identity_claims_hash_length" in claim_checks
+    claim_indexes = {index["name"] for index in inspector.get_indexes("entity_identity_claims")}
+    assert "ix_entity_identity_claims_lookup" in claim_indexes
+    for table in entity_tables:
+        for fk in inspector.get_foreign_keys(table):
+            assert (fk.get("options") or {}).get("ondelete") is None
+
     with migrated_engine.connect() as connection:
         assert (
             connection.execute(
@@ -326,7 +446,11 @@ def test_postgresql_schema_contracts(session_factory, migrated_engine):
                 FROM information_schema.columns
                 WHERE table_name IN (
                     'observation_ingest_sequence_state',
-                    'observation_ingest_entries'
+                    'observation_ingest_entries',
+                    'entities',
+                    'entity_observations',
+                    'entity_evidence',
+                    'entity_identity_claims'
                 )
                 AND (identity_generation IS NOT NULL OR column_default LIKE 'nextval%')
                 """
@@ -839,9 +963,12 @@ def test_postgresql_projection_atomic_success(session_factory):
     checkpoint = ProjectionRepository(session_factory).get_checkpoint(identity)
     assert checkpoint.last_processed_sequence == 2
     assert checkpoint.status == "idle"
-    assert ProjectionRepository(session_factory).list_failures(
-        identity, status=ProjectorFailureStatus.ACTIVE
-    ) == []
+    assert (
+        ProjectionRepository(session_factory).list_failures(
+            identity, status=ProjectorFailureStatus.ACTIVE
+        )
+        == []
+    )
 
 
 def test_postgresql_projection_poison_failure_rolls_back_item(session_factory):
@@ -926,3 +1053,107 @@ def test_postgresql_projection_missing_failure_record_invariant(session_factory)
         ProjectionRunner(session_factory).run_batch(identity, handler, retry_failed=True)
     assert not called
     assert repo.get_checkpoint(identity).status == "failed"
+
+
+def test_postgresql_entity_projection_behavior_and_isolation(session_factory):
+    repo = ObservationRepository(session_factory)
+    first = observation("ent-ok", ev=evidence("ent-ev-1", "c" * 64))
+    second = observation(
+        "ent-newer",
+        ev=evidence("ent-ev-2", "d" * 64),
+    ).model_copy(
+        update={
+            "event_time": datetime(2026, 1, 2, 12, tzinfo=UTC),
+            "subject": EntityRef(
+                id="asset-1",
+                type=EntityType.ASSET,
+                label="asset newer",
+                attributes={"asset_id": "asset-1", "hostname": "HostA", "removed": "gone"},
+            ),
+            "object": EntityRef(
+                id="app-1",
+                type=EntityType.APPLICATION,
+                label="app",
+                attributes={
+                    "application_id": "app-1",
+                    "scheme": "https",
+                    "host": "app",
+                    "port": 443,
+                },
+            ),
+        }
+    )
+    older = observation("ent-older", ev=evidence("ent-ev-3", "e" * 64)).model_copy(
+        update={
+            "event_time": datetime(2025, 12, 31, 12, tzinfo=UTC),
+            "subject": EntityRef(
+                id="asset-1",
+                type=EntityType.ASSET,
+                label="asset old",
+                attributes={"asset_id": "asset-1"},
+            ),
+        }
+    )
+    conflict = observation("ent-conflict", ev=evidence("ent-ev-4", "f" * 64)).model_copy(
+        update={
+            "subject": EntityRef(
+                id="asset-1",
+                type=EntityType.APPLICATION,
+                label="bad",
+                attributes={"application_id": "asset-1"},
+            )
+        }
+    )
+    for item in (first, second, older, conflict):
+        repo.put_with_result(item)
+    handler = EntityProjectionHandler(clock=lambda: datetime(2026, 2, 1, tzinfo=UTC))
+    ProjectionRepository(session_factory).register_projector(handler.projector_identity)
+    result = ProjectionRunner(session_factory).run_batch(
+        handler.projector_identity, handler, limit=10
+    )
+    assert result.outcome == ProjectionRunOutcome.FAILED
+    assert result.ending_sequence == 3
+    entity = EntityRepository(session_factory).get_entity("1", "tenant-a", "asset-1")
+    assert entity.label == "asset newer"
+    assert entity.first_seen == older.event_time
+    assert entity.last_seen == second.event_time
+    assert entity.attributes["removed"] == "gone"
+    lineage = EntityRepository(session_factory).get_lineage("1", "tenant-a", "asset-1")
+    assert {row.observation_id for row in lineage.observations} == {
+        "ent-ok",
+        "ent-newer",
+        "ent-older",
+    }
+    assert {row.evidence_id for row in lineage.evidence} == {"ent-ev-1", "ent-ev-2", "ent-ev-3"}
+    assert {claim.identity_key_name for claim in lineage.identity_claims} >= {
+        "asset_id",
+        "hostname",
+    }
+    assert EntityRepository(session_factory).get_entity("1", "tenant-a", "app-1") is not None
+    assert EntityRepository(session_factory).get_entity("1", "tenant-b", "asset-1") is None
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(ObservationRecord)) == 4
+        assert session.scalar(select(func.count()).select_from(EvidenceRefRecord)) == 4
+        assert (
+            session.scalar(select(func.count()).where(EntityRecord.projection_version == "1")) == 2
+        )
+        assert (
+            session.scalar(
+                select(func.count()).where(
+                    ProjectorFailureRecord.error_code == "entity_type_conflict"
+                )
+            )
+            == 1
+        )
+
+    v2 = EntityProjectionHandler(
+        projection_version="2", clock=lambda: datetime(2026, 2, 1, tzinfo=UTC)
+    )
+    ProjectionRepository(session_factory).register_projector(v2.projector_identity)
+    assert (
+        ProjectionRunner(session_factory)
+        .run_batch(v2.projector_identity, v2, limit=1)
+        .ending_sequence
+        == 1
+    )
+    assert EntityRepository(session_factory).get_entity("2", "tenant-a", "asset-1") is not None

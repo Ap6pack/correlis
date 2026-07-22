@@ -129,6 +129,8 @@ class ProjectionRunner:
                             },
                         )
                         break
+                    except ProjectionInvariantError:
+                        raise
                     except SQLAlchemyError:
                         raise
                     except Exception as exc:

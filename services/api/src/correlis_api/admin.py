@@ -8,13 +8,18 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from correlis_schema import EntityType
 from correlis_store import (
     CollectorRepository,
+    EntityProjectionHandler,
+    EntityRepository,
     ProjectionRepository,
+    ProjectionRunner,
     ProjectorFailureStatus,
     ProjectorIdentity,
     create_database_engine,
     create_session_factory,
+    entity_projector_identity,
 )
 
 
@@ -92,6 +97,33 @@ def build_parser():
     x.add_argument("--version", required=True)
     x.add_argument("--status", choices=["active", "resolved", "all"], default="active")
     x.add_argument("--limit", type=int, default=100)
+    ep = sub.add_parser("entity-projection").add_subparsers(dest="cmd", required=True)
+    x = ep.add_parser("register")
+    x.add_argument("--version", required=True)
+    x = ep.add_parser("run")
+    x.add_argument("--version", required=True)
+    x.add_argument("--limit", type=int, default=100)
+    x.add_argument("--retry-failed", action="store_true")
+    x = ep.add_parser("show")
+    x.add_argument("--version", required=True)
+    ents = sub.add_parser("entities").add_subparsers(dest="cmd", required=True)
+    x = ents.add_parser("list")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--entity-type")
+    x.add_argument("--after-entity-id")
+    x.add_argument("--limit", type=int, default=100)
+    x = ents.add_parser("show")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--entity-id", required=True)
+    x = ents.add_parser("lineage")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--entity-id", required=True)
+    x.add_argument("--observation-limit", type=int, default=100)
+    x.add_argument("--evidence-limit", type=int, default=100)
+    x.add_argument("--identity-claim-limit", type=int, default=100)
     return p
 
 
@@ -102,6 +134,7 @@ def main(argv=None) -> int:
         engine, sf = _session_resources()
         r = CollectorRepository(sf)
         projections = ProjectionRepository(sf)
+        entities = EntityRepository(sf)
         if args.group == "collectors" and args.cmd == "create":
             out = r.create_collector(
                 tenant_id=args.tenant_id,
@@ -160,6 +193,46 @@ def main(argv=None) -> int:
             out = projections.list_failures(
                 ProjectorIdentity(args.name, args.version), status=status, limit=args.limit
             )
+        elif args.group == "entity-projection" and args.cmd == "register":
+            out = projections.register_projector(entity_projector_identity(args.version))
+        elif args.group == "entity-projection" and args.cmd == "show":
+            out = projections.get_checkpoint(entity_projector_identity(args.version))
+            if out is None:
+                raise RuntimeError("projector is not registered")
+        elif args.group == "entity-projection" and args.cmd == "run":
+            handler = EntityProjectionHandler(projection_version=args.version)
+            out = ProjectionRunner(sf).run_batch(
+                handler.projector_identity,
+                handler,
+                limit=args.limit,
+                retry_failed=args.retry_failed,
+            )
+            print(json.dumps(_jsonable(out), sort_keys=True))
+            return 0 if str(out.outcome) in {"advanced", "caught_up"} else 1
+        elif args.group == "entities" and args.cmd == "list":
+            et = EntityType(args.entity_type) if args.entity_type else None
+            out = entities.list_entities(
+                args.projection_version,
+                args.tenant_id,
+                entity_type=et,
+                after_entity_id=args.after_entity_id,
+                limit=args.limit,
+            )
+        elif args.group == "entities" and args.cmd == "show":
+            out = entities.get_entity(args.projection_version, args.tenant_id, args.entity_id)
+            if out is None:
+                raise RuntimeError("entity not found")
+        elif args.group == "entities" and args.cmd == "lineage":
+            out = entities.get_lineage(
+                args.projection_version,
+                args.tenant_id,
+                args.entity_id,
+                observation_limit=args.observation_limit,
+                evidence_limit=args.evidence_limit,
+                identity_claim_limit=args.identity_claim_limit,
+            )
+            if out is None:
+                raise RuntimeError("entity not found")
         else:
             raise RuntimeError("unsupported command")
         print(json.dumps(_jsonable(out), sort_keys=True))

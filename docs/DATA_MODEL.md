@@ -231,3 +231,13 @@ Projector failures do not mutate immutable observations, evidence, or the global
 The durable observation stream introduces no new database table. Stream order comes from the existing `observation_ingest_entries` durable sequence. Client continuation state is held in encrypted stream cursors returned in SSE event IDs and data.
 
 A stream cursor position is not observation event time and is not a projector checkpoint. It represents the last global durable sequence entry scanned for a collector-scoped view, including entries outside the collector's tenant/source scope. Projector checkpoints and projector failure records remain separate, and projector failures do not block observation-stream replay.
+
+## Persistent entity projection tables
+
+`entities` stores versioned, tenant-qualified projected entity state. Entity identity is `projection_version`, `tenant_id`, and submitted `entity_id`. The canonical entity key is a deterministic hash of entity type and submitted ID; it is not an identity-key claim and does not include tenant or projection version because those are table qualifiers.
+
+`entity_observations` stores subject/object occurrence lineage for each projected entity and joins back to immutable observations for source and sensor metadata. It does not duplicate observation payload JSON.
+
+`entity_evidence` stores entity-to-evidence lineage with first/last event time and first/last ingest sequence. It does not duplicate evidence locators, payloads, or raw bytes.
+
+`entity_identity_claims` stores exact ontology identity-key claims extracted from entity attributes. An identity-key claim is a retained value candidate for future entity resolution. Entity resolution is not performed by this projection: shared claims across tenants, versions, or entity IDs do not merge entities and do not enforce cross-entity uniqueness.

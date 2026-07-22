@@ -18,10 +18,11 @@ from correlis_store import (
     ObservationQueryFilters,
     ObservationRepository,
     WriteDisposition,
+    entity_projector_identity,
 )
 from correlis_store.hashing import canonical_model_sha256
 from correlis_store.models import Base, ObservationEvidenceRecord, ObservationRecord
-from sqlalchemy import create_engine, func, inspect, select
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -165,7 +166,7 @@ def test_alembic_revision_ids_fit_default_version_table():
     assert all(revision_id for revision_id in revision_ids)
     assert len(set(revision_ids)) == len(revision_ids)
     assert all(len(revision_id) <= 32 for revision_id in revision_ids)
-    assert script.get_current_head() == "0004_projection_state"
+    assert script.get_current_head() == "0005_entity_projection"
 
 
 def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypatch):
@@ -175,10 +176,119 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
     db = tmp_path / "migration.sqlite"
     monkeypatch.setenv("CORRELIS_DATABASE_URL", f"sqlite:///{db}")
     config = Config("alembic.ini")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0004_projection_state")
     engine = create_engine(f"sqlite:///{db}", future=True)
-    assert {"observations", "evidence_refs", "observation_evidence"}.issubset(
-        set(inspect(engine).get_table_names())
+    sf = sessionmaker(bind=engine, class_=Session, expire_on_commit=False, future=True)
+    obs = observation("obs-migration")
+    ObservationRepository(sf).put(obs)
+    from correlis_store import ProjectionRepository, ProjectorIdentity
+
+    ProjectionRepository(sf).register_projector(ProjectorIdentity("other-projector", "1"))
+    command.upgrade(config, "head")
+    inspector = inspect(engine)
+    entity_tables = {"entities", "entity_observations", "entity_evidence", "entity_identity_claims"}
+    assert entity_tables.issubset(set(inspector.get_table_names()))
+    with engine.begin() as connection:
+        assert all(
+            connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one() == 0
+            for table in entity_tables
+        )
+        assert connection.execute(text("SELECT COUNT(*) FROM observations")).scalar_one() == 1
+        assert connection.execute(text("SELECT COUNT(*) FROM evidence_refs")).scalar_one() == 1
+        assert (
+            connection.execute(
+                text(
+
+                        "SELECT last_sequence FROM observation_ingest_sequence_state "
+                        "WHERE singleton_id = 1"
+
+                )
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            connection.execute(
+                text(
+
+                        "SELECT COUNT(*) FROM projector_checkpoints "
+                        "WHERE projector_name = 'entity-projection'"
+
+                )
+            ).scalar_one()
+            == 0
+        )
+        connection.execute(
+            text(
+
+                    "INSERT INTO projector_checkpoints "
+                    "(projector_name, projector_version, last_processed_sequence, status, "
+                    "last_failure_sequence, created_at, updated_at, last_processed_at) "
+                    "VALUES ('entity-projection', '1', 0, 'failed', 1, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)"
+
+            )
+        )
+        connection.execute(
+            text(
+
+                    "INSERT INTO projector_failures "
+                    "(projector_name, projector_version, ingest_sequence, tenant_id, "
+                    "observation_id, status, attempt_count, error_code, error_type, "
+                    "safe_message, first_failed_at, last_failed_at, resolved_at) "
+                    "VALUES ('entity-projection', '1', 1, 'tenant-a', 'obs-migration', "
+                    "'active', 1, 'entity_type_conflict', 'ProjectionHandlerError', "
+                    "'safe', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)"
+
+            )
+        )
+    command.downgrade(config, "0004_projection_state")
+    names_after_downgrade = set(inspect(engine).get_table_names())
+    assert entity_tables.isdisjoint(names_after_downgrade)
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+
+                        "SELECT COUNT(*) FROM projector_checkpoints "
+                        "WHERE projector_name = 'entity-projection'"
+
+                )
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text(
+
+                        "SELECT COUNT(*) FROM projector_failures "
+                        "WHERE projector_name = 'entity-projection'"
+
+                )
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text(
+
+                        "SELECT COUNT(*) FROM projector_checkpoints "
+                        "WHERE projector_name = 'other-projector'"
+
+                )
+            ).scalar_one()
+            == 1
+        )
+        assert connection.execute(text("SELECT COUNT(*) FROM observations")).scalar_one() == 1
+        assert connection.execute(text("SELECT COUNT(*) FROM evidence_refs")).scalar_one() == 1
+    command.upgrade(config, "head")
+    assert entity_projector_identity().version == "1"
+    from correlis_store import ProjectionRepository
+
+    assert (
+        ProjectionRepository(sf)
+        .register_projector(entity_projector_identity())
+        .last_processed_sequence
+        == 0
     )
     command.downgrade(config, "base")
     assert {"observations", "evidence_refs", "observation_evidence"}.isdisjoint(
