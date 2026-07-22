@@ -3,32 +3,16 @@ VENV ?= .venv
 PIP := $(VENV)/bin/pip
 PY := $(VENV)/bin/python
 PYTHONPATH := packages/correlis-schema/src:packages/correlis-ontology/src:packages/correlis-store/src:services/api/src
+ENV_FILE := .env
 
--include .env
+ifneq ($(wildcard $(ENV_FILE)),)
+include $(ENV_FILE)
+export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' $(ENV_FILE))
+endif
 
 CORRELIS_HOST ?= 0.0.0.0
 CORRELIS_PORT ?= 8080
 CORRELIS_BASE_URL ?= http://localhost:$(CORRELIS_PORT)
-
-export CORRELIS_HOST
-export CORRELIS_PORT
-export CORRELIS_BASE_URL
-export CORRELIS_LOG_LEVEL
-export CORRELIS_SCENARIO_DIR
-export CORRELIS_ALEMBIC_CONFIG
-export CORRELIS_DATABASE_URL
-export CORRELIS_TEST_DATABASE_URL
-export CORRELIS_CREDENTIAL_PEPPER
-export CORRELIS_INGEST_MAX_BODY_BYTES
-export CORRELIS_INGEST_MAX_BATCH_SIZE
-export CORRELIS_QUERY_DEFAULT_PAGE_SIZE
-export CORRELIS_QUERY_MAX_PAGE_SIZE
-export CORRELIS_STREAM_SCAN_BATCH_SIZE
-export CORRELIS_STREAM_POLL_INTERVAL_SECONDS
-export CORRELIS_STREAM_HEARTBEAT_SECONDS
-export CORRELIS_STREAM_AUTH_RECHECK_SECONDS
-export CORRELIS_STREAM_MAX_CONNECTIONS
-export CORRELIS_STREAM_MAX_CONNECTIONS_PER_COLLECTOR
 
 .PHONY: install local-setup local-db doctor test test-unit test-postgres test-all run smoke lint clean bundle db-up db-down migrate
 
@@ -74,7 +58,7 @@ run:
 
 
 smoke:
-	PYTHONPATH=$(PYTHONPATH) $(PY) scripts/local_smoke.py
+	CORRELIS_BASE_URL=$(CORRELIS_BASE_URL) PYTHONPATH=$(PYTHONPATH) $(PY) scripts/local_smoke.py
 
 
 lint:
