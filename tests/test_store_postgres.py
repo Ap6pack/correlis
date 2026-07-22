@@ -125,6 +125,10 @@ def reset_observation_store(connection) -> None:
         text(
             """
             TRUNCATE TABLE
+                entity_identity_claims,
+                entity_evidence,
+                entity_observations,
+                entities,
                 test_projection_effects,
                 projector_failures,
                 projector_checkpoints,
@@ -149,6 +153,10 @@ def reset_observation_store(connection) -> None:
     counts_by_table = {
         table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
         for table in (
+            "entity_identity_claims",
+            "entity_evidence",
+            "entity_observations",
+            "entities",
             "test_projection_effects",
             "projector_failures",
             "projector_checkpoints",
@@ -159,6 +167,10 @@ def reset_observation_store(connection) -> None:
         )
     }
     assert counts_by_table == {
+        "entity_identity_claims": 0,
+        "entity_evidence": 0,
+        "entity_observations": 0,
+        "entities": 0,
         "test_projection_effects": 0,
         "projector_failures": 0,
         "projector_checkpoints": 0,
