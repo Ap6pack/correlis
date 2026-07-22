@@ -26,6 +26,14 @@ jobs:
             exit 1
           fi
           tail -n 20 /tmp/correlis-test.log
+      - name: Upload failed unit-test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-${{ matrix.python-version }}
+          path: /tmp/correlis-test.log
+          if-no-files-found: error
+          retention-days: 7
       - run: make lint
 
 
@@ -61,4 +69,12 @@ jobs:
             exit 1
           fi
           tail -n 20 /tmp/correlis-postgres-test.log
+      - name: Upload failed PostgreSQL test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-test-3.13
+          path: /tmp/correlis-postgres-test.log
+          if-no-files-found: error
+          retention-days: 7
       - run: make lint
