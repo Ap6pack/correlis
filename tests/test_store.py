@@ -52,7 +52,7 @@ def observation(
         ingest_time=datetime(2026, 1, 1, 12, 1, tzinfo=UTC),
         source="sensor",
         sensor_id="sensor-1",
-        event_class="authentication",
+        event_class=EventClass.AUTHENTICATION,
         activity=activity,
         subject=EntityRef(id="asset-1", type=EntityType.ASSET, label="asset"),
         evidence=[ev or evidence()],
@@ -198,10 +198,8 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
         assert (
             connection.execute(
                 text(
-
-                        "SELECT last_sequence FROM observation_ingest_sequence_state "
-                        "WHERE singleton_id = 1"
-
+                    "SELECT last_sequence FROM observation_ingest_sequence_state "
+                    "WHERE singleton_id = 1"
                 )
             ).scalar_one()
             == 1
@@ -209,36 +207,30 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
         assert (
             connection.execute(
                 text(
-
-                        "SELECT COUNT(*) FROM projector_checkpoints "
-                        "WHERE projector_name = 'entity-projection'"
-
+                    "SELECT COUNT(*) FROM projector_checkpoints "
+                    "WHERE projector_name = 'entity-projection'"
                 )
             ).scalar_one()
             == 0
         )
         connection.execute(
             text(
-
-                    "INSERT INTO projector_checkpoints "
-                    "(projector_name, projector_version, last_processed_sequence, status, "
-                    "last_failure_sequence, created_at, updated_at, last_processed_at) "
-                    "VALUES ('entity-projection', '1', 0, 'failed', 1, "
-                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)"
-
+                "INSERT INTO projector_checkpoints "
+                "(projector_name, projector_version, last_processed_sequence, status, "
+                "last_failure_sequence, created_at, updated_at, last_processed_at) "
+                "VALUES ('entity-projection', '1', 0, 'failed', 1, "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)"
             )
         )
         connection.execute(
             text(
-
-                    "INSERT INTO projector_failures "
-                    "(projector_name, projector_version, ingest_sequence, tenant_id, "
-                    "observation_id, status, attempt_count, error_code, error_type, "
-                    "safe_message, first_failed_at, last_failed_at, resolved_at) "
-                    "VALUES ('entity-projection', '1', 1, 'tenant-a', 'obs-migration', "
-                    "'active', 1, 'entity_type_conflict', 'ProjectionHandlerError', "
-                    "'safe', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)"
-
+                "INSERT INTO projector_failures "
+                "(projector_name, projector_version, ingest_sequence, tenant_id, "
+                "observation_id, status, attempt_count, error_code, error_type, "
+                "safe_message, first_failed_at, last_failed_at, resolved_at) "
+                "VALUES ('entity-projection', '1', 1, 'tenant-a', 'obs-migration', "
+                "'active', 1, 'entity_type_conflict', 'ProjectionHandlerError', "
+                "'safe', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)"
             )
         )
     command.downgrade(config, "0004_projection_state")
@@ -248,10 +240,8 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
         assert (
             connection.execute(
                 text(
-
-                        "SELECT COUNT(*) FROM projector_checkpoints "
-                        "WHERE projector_name = 'entity-projection'"
-
+                    "SELECT COUNT(*) FROM projector_checkpoints "
+                    "WHERE projector_name = 'entity-projection'"
                 )
             ).scalar_one()
             == 0
@@ -259,10 +249,8 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
         assert (
             connection.execute(
                 text(
-
-                        "SELECT COUNT(*) FROM projector_failures "
-                        "WHERE projector_name = 'entity-projection'"
-
+                    "SELECT COUNT(*) FROM projector_failures "
+                    "WHERE projector_name = 'entity-projection'"
                 )
             ).scalar_one()
             == 0
@@ -270,10 +258,8 @@ def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypa
         assert (
             connection.execute(
                 text(
-
-                        "SELECT COUNT(*) FROM projector_checkpoints "
-                        "WHERE projector_name = 'other-projector'"
-
+                    "SELECT COUNT(*) FROM projector_checkpoints "
+                    "WHERE projector_name = 'other-projector'"
                 )
             ).scalar_one()
             == 1
@@ -302,8 +288,8 @@ def scoped_observation(
     source: str = "sensor",
     when: datetime | None = None,
     sensor: str = "sensor-1",
-    event_class: str = "authentication",
-    severity: str = "low",
+    event_class: EventClass = EventClass.AUTHENTICATION,
+    severity: Severity = Severity.LOW,
     ev: EvidenceRef | None = None,
 ) -> Observation:
     obs = observation(
@@ -338,32 +324,32 @@ def test_source_scoped_list_keyset_filters_and_limits(session_factory):
             when=t,
             source="source-a",
             sensor="s1",
-            event_class="authentication",
-            severity="low",
+            event_class=EventClass.AUTHENTICATION,
+            severity=Severity.LOW,
         ),
         scoped_observation(
             "obs-b",
             when=t,
             source="source-a",
             sensor="s1",
-            event_class="authentication",
-            severity="high",
+            event_class=EventClass.AUTHENTICATION,
+            severity=Severity.HIGH,
         ),
         scoped_observation(
             "obs-c",
             when=t + timedelta(hours=1),
             source="source-a",
             sensor="s2",
-            event_class="network_activity",
-            severity="high",
+            event_class=EventClass.NETWORK_ACTIVITY,
+            severity=Severity.HIGH,
         ),
         scoped_observation(
             "obs-d",
             when=t + timedelta(hours=2),
             source="source-b",
             sensor="s1",
-            event_class="authentication",
-            severity="low",
+            event_class=EventClass.AUTHENTICATION,
+            severity=Severity.LOW,
         ),
     ]:
         repo.put(obs)

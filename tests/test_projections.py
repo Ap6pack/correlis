@@ -20,7 +20,7 @@ from sqlalchemy import BigInteger, Column, String, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 
-class TestProjectionEffect(Base):
+class ProjectionEffectRecord(Base):
     __tablename__ = "test_projection_effects"
     ingest_sequence = Column(BigInteger, primary_key=True, autoincrement=False)
     observation_id = Column(String(128), nullable=False)
@@ -96,7 +96,7 @@ def test_successful_runner_commits_effect_and_checkpoint(sf, clock):
 
     def handler(session, item):
         session.add(
-            TestProjectionEffect(
+            ProjectionEffectRecord(
                 ingest_sequence=item.ingest_sequence, observation_id=item.observation.id, value="ok"
             )
         )
@@ -106,7 +106,7 @@ def test_successful_runner_commits_effect_and_checkpoint(sf, clock):
     assert result.processed_count == 1
     assert ProjectionRepository(sf).get_checkpoint(ident()).last_processed_sequence == 1
     with sf() as session:
-        assert session.get(TestProjectionEffect, 1).observation_id == "obs-1"
+        assert session.get(ProjectionEffectRecord, 1).observation_id == "obs-1"
 
 
 def test_failure_blocks_and_retry_resolves(sf, clock):
@@ -116,7 +116,7 @@ def test_failure_blocks_and_retry_resolves(sf, clock):
 
     def failing(session, item):
         session.add(
-            TestProjectionEffect(
+            ProjectionEffectRecord(
                 ingest_sequence=item.ingest_sequence,
                 observation_id=item.observation.id,
                 value="bad",
@@ -131,7 +131,7 @@ def test_failure_blocks_and_retry_resolves(sf, clock):
         cp.status == "failed" and cp.last_processed_sequence == 0 and cp.last_failure_sequence == 1
     )
     with sf() as session:
-        assert session.get(TestProjectionEffect, 1) is None
+        assert session.get(ProjectionEffectRecord, 1) is None
     failures = repo.list_failures(ident(), status=ProjectorFailureStatus.ACTIVE)
     assert failures[0].attempt_count == 1 and failures[0].safe_message == "safe failure"
     called = False
@@ -140,7 +140,7 @@ def test_failure_blocks_and_retry_resolves(sf, clock):
         nonlocal called
         called = True
         session.add(
-            TestProjectionEffect(
+            ProjectionEffectRecord(
                 ingest_sequence=item.ingest_sequence, observation_id=item.observation.id, value="ok"
             )
         )
