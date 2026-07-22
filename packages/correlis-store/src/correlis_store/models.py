@@ -301,3 +301,192 @@ class CollectorAuthEventRecord(Base):
         ),
         Index("ix_collector_auth_events_outcome_occurred", "outcome", "occurred_at"),
     )
+
+
+class EntityRecord(Base):
+    __tablename__ = "entities"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    canonical_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(256), nullable=False)
+    attributes_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False)
+    ontology_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    ontology_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    latest_claim_event_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    latest_claim_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("length(canonical_key) = 64", name="ck_entities_canonical_key_length"),
+        CheckConstraint("first_ingest_sequence >= 1", name="ck_entities_first_sequence_positive"),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence", name="ck_entities_sequence_order"
+        ),
+        CheckConstraint(
+            "latest_claim_ingest_sequence >= first_ingest_sequence",
+            name="ck_entities_latest_sequence_min",
+        ),
+        CheckConstraint(
+            "latest_claim_ingest_sequence <= last_ingest_sequence",
+            name="ck_entities_latest_sequence_max",
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_entities_seen_order"),
+        CheckConstraint(
+            "latest_claim_event_time <= last_seen", name="ck_entities_latest_claim_seen"
+        ),
+        UniqueConstraint(
+            "projection_version",
+            "tenant_id",
+            "canonical_key",
+            name="uq_entities_projection_tenant_canonical_key",
+        ),
+        Index(
+            "ix_entities_projection_tenant_type_id",
+            "projection_version",
+            "tenant_id",
+            "entity_type",
+            "entity_id",
+        ),
+        Index(
+            "ix_entities_projection_tenant_last_seen",
+            "projection_version",
+            "tenant_id",
+            "last_seen",
+        ),
+        Index(
+            "ix_entities_projection_tenant_canonical_key",
+            "projection_version",
+            "tenant_id",
+            "canonical_key",
+        ),
+    )
+
+
+class EntityObservationRecord(Base):
+    __tablename__ = "entity_observations"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), primary_key=True)
+    ingest_sequence: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("observation_ingest_entries.ingest_sequence"), nullable=False
+    )
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "entity_id"],
+            ["entities.projection_version", "entities.tenant_id", "entities.entity_id"],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        CheckConstraint("role IN ('subject', 'object')", name="ck_entity_observations_role"),
+        Index(
+            "ix_entity_observations_entity_sequence",
+            "projection_version",
+            "tenant_id",
+            "entity_id",
+            "ingest_sequence",
+        ),
+        Index(
+            "ix_entity_observations_observation",
+            "projection_version",
+            "tenant_id",
+            "observation_id",
+        ),
+        Index(
+            "ix_entity_observations_sequence", "projection_version", "tenant_id", "ingest_sequence"
+        ),
+    )
+
+
+class EntityEvidenceRecord(Base):
+    __tablename__ = "entity_evidence"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "entity_id"],
+            ["entities.projection_version", "entities.tenant_id", "entities.entity_id"],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evidence_id"], ["evidence_refs.tenant_id", "evidence_refs.evidence_id"]
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_entity_evidence_seen_order"),
+        CheckConstraint(
+            "first_ingest_sequence >= 1", name="ck_entity_evidence_first_sequence_positive"
+        ),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence",
+            name="ck_entity_evidence_sequence_order",
+        ),
+        Index("ix_entity_evidence_entity", "projection_version", "tenant_id", "entity_id"),
+        Index("ix_entity_evidence_evidence", "projection_version", "tenant_id", "evidence_id"),
+    )
+
+
+class EntityIdentityClaimRecord(Base):
+    __tablename__ = "entity_identity_claims"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    identity_key_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "entity_id"],
+            ["entities.projection_version", "entities.tenant_id", "entities.entity_id"],
+        ),
+        CheckConstraint("length(value_sha256) = 64", name="ck_entity_identity_claims_hash_length"),
+        CheckConstraint("first_seen <= last_seen", name="ck_entity_identity_claims_seen_order"),
+        CheckConstraint(
+            "first_ingest_sequence >= 1", name="ck_entity_identity_claims_first_sequence_positive"
+        ),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence",
+            name="ck_entity_identity_claims_sequence_order",
+        ),
+        Index(
+            "ix_entity_identity_claims_lookup",
+            "projection_version",
+            "tenant_id",
+            "entity_type",
+            "identity_key_name",
+            "value_sha256",
+        ),
+    )

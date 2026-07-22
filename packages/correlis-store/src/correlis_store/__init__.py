@@ -20,6 +20,22 @@ from .collectors import (
 )
 from .credential_security import CredentialPepperConfigurationError
 from .database import create_database_engine, create_session_factory
+from .entities import (
+    EntityEvidenceLineage,
+    EntityIdentityClaim,
+    EntityLineage,
+    EntityObservationLineage,
+    ProjectedEntity,
+    ProjectedEntityPage,
+)
+from .entity_projection import (
+    DEFAULT_ENTITY_PROJECTOR_VERSION,
+    ENTITY_PROJECTOR_NAME,
+    EntityProjectionHandler,
+    canonical_entity_key,
+    entity_projector_identity,
+)
+from .entity_repository import EntityRepository
 from .errors import (
     ImmutableRecordConflict,
     ObservationSequenceCursorError,
@@ -61,6 +77,18 @@ from .projections import (
 from .repository import ObservationRepository, WriteDisposition
 
 __all__ = [
+    'EntityEvidenceLineage',
+    'EntityIdentityClaim',
+    'EntityLineage',
+    'EntityObservationLineage',
+    'ProjectedEntity',
+    'ProjectedEntityPage',
+    'DEFAULT_ENTITY_PROJECTOR_VERSION',
+    'ENTITY_PROJECTOR_NAME',
+    'EntityProjectionHandler',
+    'EntityRepository',
+    'canonical_entity_key',
+    'entity_projector_identity',
     "AuthenticatedCollectorPrincipal",
     "AuthenticationOutcome",
     "AuthenticationReasonCode",
