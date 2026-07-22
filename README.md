@@ -330,3 +330,21 @@ correlis-admin entities lineage \
   --tenant-id tenant-a \
   --entity-id asset-123
 ```
+
+### Persistent relationship projection
+
+Correlis includes an operator-run, durable `relationship-projection` projector for explicit relationships already present in canonical observations. It materializes only observations where `relationship` and `object` are both present; all persisted edges are `observed`, direct-evidence relationships with no rule ID. The projector consumes the same global observation ingest sequence as other projectors through `ProjectionRunner`, is scoped by tenant and projector version, and stores source/target entity IDs and types without requiring the entity projector to be registered or caught up first.
+
+Relationship IDs are deterministic SHA-256-derived 32-character IDs over tenant, source ID, relationship type, target ID, provenance, and rule ID (`direct` for direct observations). Aggregation is order-independent: first/last seen and first/last ingest sequence use min/max bounds, while confidence keeps the maximum observed confidence. Observation lineage and aggregate evidence lineage are retained for inspection. No derived correlation rules, entity merging, background worker, or public relationship HTTP API is introduced.
+
+CLI examples:
+
+```bash
+correlis-admin relationship-projection register --version 1
+correlis-admin relationship-projection show --version 1
+correlis-admin relationship-projection run --version 1 --limit 100
+correlis-admin relationship-projection run --version 1 --limit 100 --retry-failed
+correlis-admin relationships list --projection-version 1 --tenant-id tenant-a
+correlis-admin relationships show --projection-version 1 --tenant-id tenant-a --relationship-id <id>
+correlis-admin relationships lineage --projection-version 1 --tenant-id tenant-a --relationship-id <id>
+```

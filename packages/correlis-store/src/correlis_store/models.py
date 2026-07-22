@@ -490,3 +490,185 @@ class EntityIdentityClaimRecord(Base):
             "value_sha256",
         ),
     )
+
+
+class RelationshipRecord(Base):
+    __tablename__ = "relationships"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    relationship_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    provenance: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_entity_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_entity_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    target_entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    ontology_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    ontology_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("length(relationship_id) = 32", name="ck_relationships_id_length"),
+        CheckConstraint(
+            "relationship_id = lower(relationship_id) "
+            "AND relationship_id NOT LIKE '%g%' AND relationship_id NOT LIKE '%h%' "
+            "AND relationship_id NOT LIKE '%i%' AND relationship_id NOT LIKE '%j%' "
+            "AND relationship_id NOT LIKE '%k%' AND relationship_id NOT LIKE '%l%' "
+            "AND relationship_id NOT LIKE '%m%' AND relationship_id NOT LIKE '%n%' "
+            "AND relationship_id NOT LIKE '%o%' AND relationship_id NOT LIKE '%p%' "
+            "AND relationship_id NOT LIKE '%q%' AND relationship_id NOT LIKE '%r%' "
+            "AND relationship_id NOT LIKE '%s%' AND relationship_id NOT LIKE '%t%' "
+            "AND relationship_id NOT LIKE '%u%' AND relationship_id NOT LIKE '%v%' "
+            "AND relationship_id NOT LIKE '%w%' AND relationship_id NOT LIKE '%x%' "
+            "AND relationship_id NOT LIKE '%y%' AND relationship_id NOT LIKE '%z%'",
+            name="ck_relationships_id_lower_hex",
+        ),
+        CheckConstraint("provenance = 'observed'", name="ck_relationships_observed"),
+        CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_relationships_confidence"),
+        CheckConstraint(
+            "first_ingest_sequence >= 1", name="ck_relationships_first_sequence_positive"
+        ),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence",
+            name="ck_relationships_sequence_order",
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_relationships_seen_order"),
+        CheckConstraint("length(source_entity_id) > 0", name="ck_relationships_source_id"),
+        CheckConstraint("length(source_entity_type) > 0", name="ck_relationships_source_type"),
+        CheckConstraint("length(target_entity_id) > 0", name="ck_relationships_target_id"),
+        CheckConstraint("length(target_entity_type) > 0", name="ck_relationships_target_type"),
+        UniqueConstraint(
+            "projection_version",
+            "tenant_id",
+            "source_entity_id",
+            "relationship_type",
+            "target_entity_id",
+            "provenance",
+            name="uq_relationships_projection_tenant_direct_edge",
+        ),
+        Index(
+            "ix_relationships_projection_tenant_source",
+            "projection_version",
+            "tenant_id",
+            "source_entity_id",
+            "relationship_type",
+            "relationship_id",
+        ),
+        Index(
+            "ix_relationships_projection_tenant_target",
+            "projection_version",
+            "tenant_id",
+            "target_entity_id",
+            "relationship_type",
+            "relationship_id",
+        ),
+        Index(
+            "ix_relationships_projection_tenant_type",
+            "projection_version",
+            "tenant_id",
+            "relationship_type",
+            "relationship_id",
+        ),
+        Index(
+            "ix_relationships_projection_tenant_last_seen",
+            "projection_version",
+            "tenant_id",
+            "last_seen",
+            "relationship_id",
+        ),
+    )
+
+
+class RelationshipObservationRecord(Base):
+    __tablename__ = "relationship_observations"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    ingest_sequence: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("observation_ingest_entries.ingest_sequence"), nullable=False
+    )
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "relationship_id"],
+            [
+                "relationships.projection_version",
+                "relationships.tenant_id",
+                "relationships.relationship_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        Index(
+            "ix_relationship_observations_relationship_sequence",
+            "projection_version",
+            "tenant_id",
+            "relationship_id",
+            "ingest_sequence",
+        ),
+        Index(
+            "ix_relationship_observations_observation",
+            "projection_version",
+            "tenant_id",
+            "observation_id",
+        ),
+    )
+
+
+class RelationshipEvidenceRecord(Base):
+    __tablename__ = "relationship_evidence"
+
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "relationship_id"],
+            [
+                "relationships.projection_version",
+                "relationships.tenant_id",
+                "relationships.relationship_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evidence_id"], ["evidence_refs.tenant_id", "evidence_refs.evidence_id"]
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_relationship_evidence_seen_order"),
+        CheckConstraint(
+            "first_ingest_sequence >= 1", name="ck_relationship_evidence_first_sequence_positive"
+        ),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence",
+            name="ck_relationship_evidence_sequence_order",
+        ),
+        Index(
+            "ix_relationship_evidence_relationship",
+            "projection_version",
+            "tenant_id",
+            "relationship_id",
+        ),
+        Index(
+            "ix_relationship_evidence_evidence", "projection_version", "tenant_id", "evidence_id"
+        ),
+    )

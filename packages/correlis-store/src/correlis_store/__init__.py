@@ -74,21 +74,35 @@ from .projections import (
     ProjectorStateConflict,
     ProjectorStatus,
 )
+from .relationship_projection import (
+    DEFAULT_RELATIONSHIP_PROJECTOR_VERSION,
+    RELATIONSHIP_PROJECTOR_NAME,
+    RelationshipProjectionHandler,
+    relationship_projector_identity,
+)
+from .relationship_repository import RelationshipRepository
+from .relationships import (
+    ProjectedRelationship,
+    ProjectedRelationshipPage,
+    RelationshipEvidenceLineage,
+    RelationshipLineage,
+    RelationshipObservationLineage,
+)
 from .repository import ObservationRepository, WriteDisposition
 
 __all__ = [
-    'EntityEvidenceLineage',
-    'EntityIdentityClaim',
-    'EntityLineage',
-    'EntityObservationLineage',
-    'ProjectedEntity',
-    'ProjectedEntityPage',
-    'DEFAULT_ENTITY_PROJECTOR_VERSION',
-    'ENTITY_PROJECTOR_NAME',
-    'EntityProjectionHandler',
-    'EntityRepository',
-    'canonical_entity_key',
-    'entity_projector_identity',
+    "EntityEvidenceLineage",
+    "EntityIdentityClaim",
+    "EntityLineage",
+    "EntityObservationLineage",
+    "ProjectedEntity",
+    "ProjectedEntityPage",
+    "DEFAULT_ENTITY_PROJECTOR_VERSION",
+    "ENTITY_PROJECTOR_NAME",
+    "EntityProjectionHandler",
+    "EntityRepository",
+    "canonical_entity_key",
+    "entity_projector_identity",
     "AuthenticatedCollectorPrincipal",
     "AuthenticationOutcome",
     "AuthenticationReasonCode",
@@ -141,4 +155,14 @@ __all__ = [
     "ProjectorPaused",
     "ProjectorStateConflict",
     "ProjectorStatus",
+    "DEFAULT_RELATIONSHIP_PROJECTOR_VERSION",
+    "RELATIONSHIP_PROJECTOR_NAME",
+    "RelationshipProjectionHandler",
+    "relationship_projector_identity",
+    "RelationshipRepository",
+    "ProjectedRelationship",
+    "ProjectedRelationshipPage",
+    "RelationshipEvidenceLineage",
+    "RelationshipLineage",
+    "RelationshipObservationLineage",
 ]

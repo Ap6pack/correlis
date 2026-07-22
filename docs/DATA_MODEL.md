@@ -241,3 +241,11 @@ A stream cursor position is not observation event time and is not a projector ch
 `entity_evidence` stores entity-to-evidence lineage with first/last event time and first/last ingest sequence. It does not duplicate evidence locators, payloads, or raw bytes.
 
 `entity_identity_claims` stores exact ontology identity-key claims extracted from entity attributes. An identity-key claim is a retained value candidate for future entity resolution. Entity resolution is not performed by this projection: shared claims across tenants, versions, or entity IDs do not merge entities and do not enforce cross-entity uniqueness.
+
+## Relationship projection tables
+
+Migration `0006_relationship_projection` adds `relationships`, `relationship_observations`, and `relationship_evidence`. Rows are scoped by `projection_version` and `tenant_id` so projector versions can coexist and rebuild independently from checkpoint sequence zero.
+
+`relationships` stores the typed operational edge: deterministic relationship ID, observed provenance, relationship type, source/target entity IDs, source/target entity types, ontology name/version, confidence, first/last seen times, first/last ingest sequences, and create/update timestamps. Identity uses tenant, source ID, relationship type, target ID, provenance, and optional rule ID; direct observed observations use `direct`. Aggregation keeps min/max event-time and sequence bounds and the maximum observed confidence.
+
+`relationship_observations` stores one idempotent lineage row per relationship and source observation. `relationship_evidence` stores aggregate evidence lineage by evidence ID, not raw evidence bytes or fetched locators. Downgrading from `0006` removes only relationship-projection failures, checkpoints, and output tables; observations, evidence references, ingest sequence state, entity projection data, and unrelated projector state survive. Re-upgrade requires explicit relationship-projector registration and rebuild.
