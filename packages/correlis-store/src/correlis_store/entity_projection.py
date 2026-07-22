@@ -8,7 +8,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from correlis_ontology import CORE_ONTOLOGY, OntologyRegistry
+from correlis_ontology import CORE_ONTOLOGY, OntologyRegistry, OntologyValidationError
 from correlis_schema import EntityRef, EntityType
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,7 @@ from .models import (
     EntityRecord,
 )
 from .observation_sequence import SequencedObservation
-from .projections import ProjectionHandlerError, ProjectorIdentity
+from .projections import ProjectionHandlerError, ProjectionInvariantError, ProjectorIdentity
 
 ENTITY_PROJECTOR_NAME = "entity-projection"
 DEFAULT_ENTITY_PROJECTOR_VERSION = "1"
@@ -51,6 +51,12 @@ def _clock() -> datetime:
     return datetime.now(UTC)
 
 
+def _stored_datetime(dt: datetime) -> datetime:
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 class EntityProjectionHandler:
     def __init__(
         self,
@@ -59,13 +65,15 @@ class EntityProjectionHandler:
         ontology_registry: OntologyRegistry = CORE_ONTOLOGY,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        self._projection_version = projection_version
+        identity = entity_projector_identity(projection_version)
+        self._identity = identity
+        self._projection_version = identity.version
         self._registry = ontology_registry
         self._clock = clock or _clock
 
     @property
     def projector_identity(self) -> ProjectorIdentity:
-        return entity_projector_identity(self._projection_version)
+        return self._identity
 
     def __call__(self, session: Session, item: SequencedObservation) -> None:
         obs = item.observation
@@ -76,7 +84,13 @@ class EntityProjectionHandler:
             )
         for ref in (obs.subject, obs.object):
             if ref is not None:
-                self._registry.validate_entity(ref)
+                try:
+                    self._registry.validate_entity(ref)
+                except OntologyValidationError as exc:
+                    raise ProjectionHandlerError(
+                        "entity_ontology_validation_failed",
+                        "Entity reference is incompatible with the configured ontology.",
+                    ) from exc
         by_id: dict[str, list[tuple[str, EntityRef]]] = defaultdict(list)
         by_id[obs.subject.id].append(("subject", obs.subject))
         if obs.object is not None:
@@ -98,6 +112,10 @@ class EntityProjectionHandler:
                     )
             refs.append((base, roles))
         now = self._clock()
+        if not _aware(now):
+            raise ProjectionInvariantError(
+                "entity projection clock must return a timezone-aware datetime"
+            )
         for ref, roles in refs:
             rec = self._upsert_entity(session, item, ref, now)
             for role in roles:
@@ -179,10 +197,10 @@ class EntityProjectionHandler:
                 "Entity projection version does not match the stored ontology version.",
             )
         changed = False
-        if obs.event_time < rec.first_seen:
+        if obs.event_time < _stored_datetime(rec.first_seen):
             rec.first_seen = obs.event_time
             changed = True
-        if obs.event_time > rec.last_seen:
+        if obs.event_time > _stored_datetime(rec.last_seen):
             rec.last_seen = obs.event_time
             changed = True
         if item.ingest_sequence < rec.first_ingest_sequence:
@@ -192,7 +210,7 @@ class EntityProjectionHandler:
             rec.last_ingest_sequence = item.ingest_sequence
             changed = True
         if (obs.event_time, item.ingest_sequence) > (
-            rec.latest_claim_event_time,
+            _stored_datetime(rec.latest_claim_event_time),
             rec.latest_claim_ingest_sequence,
         ):
             rec.label = ref.label
@@ -234,10 +252,10 @@ class EntityProjectionHandler:
             )
             return
         changed = False
-        if obs.event_time < rec.first_seen:
+        if obs.event_time < _stored_datetime(rec.first_seen):
             rec.first_seen = obs.event_time
             changed = True
-        if obs.event_time > rec.last_seen:
+        if obs.event_time > _stored_datetime(rec.last_seen):
             rec.last_seen = obs.event_time
             changed = True
         if item.ingest_sequence < rec.first_ingest_sequence:
@@ -310,10 +328,10 @@ class EntityProjectionHandler:
             )
             return
         changed = False
-        if obs.event_time < rec.first_seen:
+        if obs.event_time < _stored_datetime(rec.first_seen):
             rec.first_seen = obs.event_time
             changed = True
-        if obs.event_time > rec.last_seen:
+        if obs.event_time > _stored_datetime(rec.last_seen):
             rec.last_seen = obs.event_time
             changed = True
         if item.ingest_sequence < rec.first_ingest_sequence:
