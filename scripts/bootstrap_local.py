@@ -54,8 +54,9 @@ def main() -> None:
     _require_supported_python()
     created = _ensure_environment_file()
     generated = _ensure_credential_pepper()
+    version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
-    print(f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} is supported.")
+    print(f"Python {version} is supported.")
     if created:
         print("Created .env from .env.example.")
     else:
