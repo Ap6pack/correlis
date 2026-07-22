@@ -18,7 +18,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: make install
-      - run: make test
+      - name: Run unit tests
+        shell: bash
+        run: |
+          if ! make test > /tmp/correlis-test.log 2>&1; then
+            tail -n 120 /tmp/correlis-test.log
+            exit 1
+          fi
+          tail -n 20 /tmp/correlis-test.log
       - run: make lint
 
 
@@ -46,5 +53,12 @@ jobs:
         with:
           python-version: "3.13"
       - run: make install
-      - run: make test-postgres
+      - name: Run PostgreSQL integration tests
+        shell: bash
+        run: |
+          if ! make test-postgres > /tmp/correlis-postgres-test.log 2>&1; then
+            tail -n 160 /tmp/correlis-postgres-test.log
+            exit 1
+          fi
+          tail -n 20 /tmp/correlis-postgres-test.log
       - run: make lint
