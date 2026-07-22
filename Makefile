@@ -6,8 +6,13 @@ PYTHONPATH := packages/correlis-schema/src:packages/correlis-ontology/src:packag
 
 -include .env
 
+CORRELIS_HOST ?= 0.0.0.0
+CORRELIS_PORT ?= 8080
+CORRELIS_BASE_URL ?= http://localhost:$(CORRELIS_PORT)
+
 export CORRELIS_HOST
 export CORRELIS_PORT
+export CORRELIS_BASE_URL
 export CORRELIS_LOG_LEVEL
 export CORRELIS_SCENARIO_DIR
 export CORRELIS_ALEMBIC_CONFIG
@@ -65,7 +70,7 @@ test-all: test test-postgres
 
 
 run:
-	PYTHONPATH=$(PYTHONPATH) $(PY) -m uvicorn correlis_api.app:app --host 0.0.0.0 --port 8080 --reload
+	PYTHONPATH=$(PYTHONPATH) $(PY) -m uvicorn correlis_api.app:app --host $(CORRELIS_HOST) --port $(CORRELIS_PORT) --reload
 
 
 smoke:
