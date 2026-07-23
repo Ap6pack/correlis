@@ -335,7 +335,7 @@ correlis-admin entities lineage \
 
 Correlis includes an operator-run, durable `relationship-projection` projector for explicit relationships already present in canonical observations. It materializes only observations where `relationship` and `object` are both present; all persisted edges are `observed`, direct-evidence relationships with no rule ID. The projector consumes the same global observation ingest sequence as other projectors through `ProjectionRunner`, is scoped by tenant and projector version, and stores source/target entity IDs and types without requiring the entity projector to be registered or caught up first.
 
-Relationship IDs are deterministic SHA-256-derived 32-character IDs over tenant, source ID, relationship type, target ID, provenance, and rule ID (`direct` for direct observations). Aggregation is order-independent: first/last seen and first/last ingest sequence use min/max bounds, while confidence keeps the maximum observed confidence. Observation lineage and aggregate evidence lineage are retained for inspection. No derived correlation rules, entity merging, background worker, or public relationship HTTP API is introduced.
+Relationship IDs are deterministic SHA-256-derived 32-character IDs over tenant, source ID, relationship type, target ID, provenance, and rule ID (`direct` for direct observations). The shared 32-character relationship-ID algorithm is unchanged. Persistent relationship storage now accepts only `observed` and `deterministic` provenance: observed rows must not have rule identity, while deterministic rows require nonblank `rule_id` and `rule_version`. Observed edges remain unique by directed endpoints and type; deterministic edges are unique by directed endpoints, type, and rule ID, so separate deterministic rules may produce the same directed edge. Aggregation is order-independent: first/last seen and first/last ingest sequence use min/max bounds, while confidence keeps the maximum observed confidence. Observation lineage and aggregate evidence lineage are retained for inspection. No correlation engine exists yet, no deterministic relationships are generated automatically, and future PR #18 will add the correlation projector and first rule. No entity merging, background worker, or public relationship HTTP API is introduced.
 
 CLI examples:
 
@@ -345,6 +345,8 @@ correlis-admin relationship-projection show --version 1
 correlis-admin relationship-projection run --version 1 --limit 100
 correlis-admin relationship-projection run --version 1 --limit 100 --retry-failed
 correlis-admin relationships list --projection-version 1 --tenant-id tenant-a
+correlis-admin relationships list --projection-version 1 --tenant-id tenant-a --provenance observed
+correlis-admin relationships list --projection-version 1 --tenant-id tenant-a --provenance deterministic --rule-id <rule-id>
 correlis-admin relationships show --projection-version 1 --tenant-id tenant-a --relationship-id <id>
 correlis-admin relationships lineage --projection-version 1 --tenant-id tenant-a --relationship-id <id>
 ```

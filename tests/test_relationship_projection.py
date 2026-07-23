@@ -31,7 +31,7 @@ from correlis_store.models import (
     RelationshipRecord,
 )
 from correlis_store.observation_sequence import SequencedObservation
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -276,3 +276,117 @@ def test_repository_limit_validation_and_missing(sf):
         repo.list_relationships("1", "tenant-a", limit=0)
     with pytest.raises(ValueError):
         repo.get_lineage("1", "tenant-a", "x", evidence_limit=501)
+
+
+def _deterministic_record(r, rule_id="rule-a", tenant="tenant-a", version="1"):
+    return RelationshipRecord(
+        projection_version=version,
+        tenant_id=tenant,
+        relationship_id=relationship_id(
+            tenant,
+            r.source_entity_id,
+            RelationshipType(r.relationship_type),
+            r.target_entity_id,
+            ProvenanceClass.DETERMINISTIC,
+            rule_id,
+        ),
+        relationship_type=r.relationship_type,
+        provenance=ProvenanceClass.DETERMINISTIC.value,
+        rule_id=rule_id,
+        rule_version="2026-01-01",
+        source_entity_id=r.source_entity_id,
+        source_entity_type=r.source_entity_type,
+        target_entity_id=r.target_entity_id,
+        target_entity_type=r.target_entity_type,
+        confidence=r.confidence,
+        ontology_name=r.ontology_name,
+        ontology_version=r.ontology_version,
+        first_seen=r.first_seen,
+        last_seen=r.last_seen,
+        first_ingest_sequence=r.first_ingest_sequence,
+        last_ingest_sequence=r.last_ingest_sequence,
+        created_at=C0,
+        updated_at=C0,
+    )
+
+
+def test_observed_relationship_rule_identity_regression(sf):
+    item = put(sf, obs("rule-null"))
+    apply(sf, item)
+    r = row(sf)
+    assert r.relationship_id == "f5459ffa0d3e22db2cb833db0694fcd8"
+    assert r.rule_id is None
+    assert r.rule_version is None
+    got = RelationshipRepository(sf).get_relationship("1", "tenant-a", r.relationship_id)
+    assert got.provenance is ProvenanceClass.OBSERVED
+    assert got.rule_id is None
+    assert got.rule_version is None
+
+    with sf() as s, s.begin():
+        s.execute(text("PRAGMA ignore_check_constraints = ON"))
+        s.get(
+            RelationshipRecord,
+            {
+                "projection_version": "1",
+                "tenant_id": "tenant-a",
+                "relationship_id": r.relationship_id,
+            },
+        ).rule_id = "corrupt-rule"
+    with pytest.raises(ProjectionInvariantError):
+        apply(sf, item)
+
+
+def test_repository_provenance_and_rule_filters(sf):
+    apply(sf, put(sf, obs("observed")))
+    observed = row(sf)
+    with sf() as s, s.begin():
+        s.add(_deterministic_record(observed, "rule-a"))
+        s.add(_deterministic_record(observed, "rule-b"))
+    repo = RelationshipRepository(sf)
+
+    observed_page = repo.list_relationships("1", "tenant-a", provenance=ProvenanceClass.OBSERVED)
+    assert [r.rule_id for r in observed_page.items] == [None]
+    deterministic_page = repo.list_relationships(
+        "1", "tenant-a", provenance=ProvenanceClass.DETERMINISTIC
+    )
+    assert {r.rule_id for r in deterministic_page.items} == {"rule-a", "rule-b"}
+    rule_page = repo.list_relationships("1", "tenant-a", rule_id="rule-a")
+    assert [r.rule_id for r in rule_page.items] == ["rule-a"]
+    combined = repo.list_relationships(
+        "1", "tenant-a", provenance=ProvenanceClass.DETERMINISTIC, rule_id="rule-b"
+    )
+    assert [r.rule_id for r in combined.items] == ["rule-b"]
+
+
+def test_relationship_admin_parser_accepts_deterministic_filters_and_rejects_invalid():
+    from correlis_api.admin import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "relationships",
+            "list",
+            "--projection-version",
+            "1",
+            "--tenant-id",
+            "tenant-a",
+            "--provenance",
+            "deterministic",
+            "--rule-id",
+            "rule-a",
+        ]
+    )
+    assert args.provenance == "deterministic"
+    assert args.rule_id == "rule-a"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "relationships",
+                "list",
+                "--projection-version",
+                "1",
+                "--tenant-id",
+                "tenant-a",
+                "--provenance",
+                "analytic",
+            ]
+        )
