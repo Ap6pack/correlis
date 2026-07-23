@@ -23,6 +23,7 @@ from correlis_store import (
 from correlis_store.hashing import canonical_model_sha256
 from correlis_store.models import Base, ObservationEvidenceRecord, ObservationRecord
 from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -166,7 +167,7 @@ def test_alembic_revision_ids_fit_default_version_table():
     assert all(revision_id for revision_id in revision_ids)
     assert len(set(revision_ids)) == len(revision_ids)
     assert all(len(revision_id) <= 32 for revision_id in revision_ids)
-    assert script.get_current_head() == "0006_relationship_projection"
+    assert script.get_current_head() == "0007_deterministic_relationships"
 
 
 def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypatch):
@@ -441,3 +442,78 @@ def test_sequence_cursor_validation(session_factory):
         repo.read_sequence_page(limit=0)
     with pytest.raises(ObservationSequenceCursorError):
         repo.read_sequence_page(limit=501)
+
+
+def test_relationship_deterministic_migration_constraints(tmp_path, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+
+    db = tmp_path / "deterministic.sqlite"
+    monkeypatch.setenv("CORRELIS_DATABASE_URL", f"sqlite:///{db}")
+    config = Config("alembic.ini")
+    command.upgrade(config, "0006_relationship_projection")
+    engine = create_engine(f"sqlite:///{db}", future=True)
+    base_values = {
+        "projection_version": "1",
+        "tenant_id": "tenant-a",
+        "relationship_id": "a" * 32,
+        "relationship_type": "has_vulnerability",
+        "provenance": "observed",
+        "source_entity_id": "asset-1",
+        "source_entity_type": "asset",
+        "target_entity_id": "vuln-1",
+        "target_entity_type": "vulnerability",
+        "confidence": 0.7,
+        "ontology_name": "core",
+        "ontology_version": "1",
+        "first_seen": "2026-01-01 00:00:00",
+        "last_seen": "2026-01-01 00:00:00",
+        "first_ingest_sequence": 1,
+        "last_ingest_sequence": 1,
+        "created_at": "2026-01-01 00:00:00",
+        "updated_at": "2026-01-01 00:00:00",
+    }
+    cols = ", ".join(base_values)
+    vals = ", ".join(f":{k}" for k in base_values)
+    with engine.begin() as connection:
+        connection.execute(text(f"INSERT INTO relationships ({cols}) VALUES ({vals})"), base_values)
+        connection.execute(
+            text(
+                "INSERT INTO relationship_observations "
+                "(projection_version, tenant_id, relationship_id, observation_id, "
+                "ingest_sequence, event_time, created_at) VALUES "
+                "('1', 'tenant-a', :rid, 'obs-1', 1, '2026-01-01 00:00:00', "
+                "'2026-01-01 00:00:00')"
+            ),
+            {"rid": "a" * 32},
+        )
+    command.upgrade(config, "head")
+    insp = inspect(engine)
+    rel_cols = {c["name"]: c for c in insp.get_columns("relationships")}
+    assert rel_cols["rule_id"]["nullable"] is True
+    assert rel_cols["rule_version"]["nullable"] is True
+    indexes = {i["name"] for i in insp.get_indexes("relationships")}
+    assert "ix_relationships_observed_direct_edge_unique" in indexes
+    assert "ix_relationships_deterministic_rule_edge_unique" in indexes
+    with engine.begin() as connection:
+        assert connection.execute(text("SELECT rule_id FROM relationships")).scalar_one() is None
+        deterministic = dict(base_values)
+        deterministic.update(
+            relationship_id="b" * 32,
+            provenance="deterministic",
+            rule_id="rule-a",
+            rule_version="1",
+        )
+        insert_with_rule_identity = text(
+            f"INSERT INTO relationships ({cols}, rule_id, rule_version) "
+            f"VALUES ({vals}, :rule_id, :rule_version)"
+        )
+        connection.execute(insert_with_rule_identity, deterministic)
+        bad = dict(deterministic, relationship_id="c" * 32, rule_id="   ")
+        with pytest.raises(IntegrityError):
+            connection.execute(insert_with_rule_identity, bad)
+    command.downgrade(config, "0006_relationship_projection")
+    with engine.begin() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM relationships")).scalar_one() == 1
+    assert "rule_id" not in {c["name"] for c in inspect(engine).get_columns("relationships")}
+    command.upgrade(config, "head")

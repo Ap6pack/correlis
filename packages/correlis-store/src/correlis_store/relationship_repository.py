@@ -35,6 +35,8 @@ def _rel(r: RelationshipRecord) -> ProjectedRelationship:
         r.relationship_id,
         RelationshipType(r.relationship_type),
         ProvenanceClass(r.provenance),
+        r.rule_id,
+        r.rule_version,
         r.source_entity_id,
         EntityType(r.source_entity_type),
         r.target_entity_id,
@@ -86,6 +88,8 @@ class RelationshipRepository:
         tenant_id: str,
         *,
         relationship_type: RelationshipType | None = None,
+        provenance: ProvenanceClass | None = None,
+        rule_id: str | None = None,
         source_entity_id: str | None = None,
         target_entity_id: str | None = None,
         after_relationship_id: str | None = None,
@@ -99,6 +103,10 @@ class RelationshipRepository:
             )
             if relationship_type is not None:
                 stmt = stmt.where(RelationshipRecord.relationship_type == relationship_type.value)
+            if provenance is not None:
+                stmt = stmt.where(RelationshipRecord.provenance == provenance.value)
+            if rule_id is not None:
+                stmt = stmt.where(RelationshipRecord.rule_id == rule_id)
             if source_entity_id is not None:
                 stmt = stmt.where(RelationshipRecord.source_entity_id == source_entity_id)
             if target_entity_id is not None:

@@ -82,7 +82,7 @@ A relationship connects two entities and carries:
 - Confidence.
 - First-seen and last-seen time.
 - Evidence references.
-- Optional rule/analytic ID.
+- Optional rule identity for deterministic storage (`rule_id` and `rule_version`).
 
 ## Provenance classes
 
@@ -246,6 +246,6 @@ A stream cursor position is not observation event time and is not a projector ch
 
 Migration `0006_relationship_projection` adds `relationships`, `relationship_observations`, and `relationship_evidence`. Rows are scoped by `projection_version` and `tenant_id` so projector versions can coexist and rebuild independently from checkpoint sequence zero.
 
-`relationships` stores the typed operational edge: deterministic relationship ID, observed provenance, relationship type, source/target entity IDs, source/target entity types, ontology name/version, confidence, first/last seen times, first/last ingest sequences, and create/update timestamps. Identity uses tenant, source ID, relationship type, target ID, provenance, and optional rule ID; direct observed observations use `direct`. Aggregation keeps min/max event-time and sequence bounds and the maximum observed confidence.
+`relationships` stores the typed operational edge: deterministic relationship ID, provenance, optional deterministic `rule_id` and `rule_version`, relationship type, source/target entity IDs, source/target entity types, ontology name/version, confidence, first/last seen times, first/last ingest sequences, and create/update timestamps. Identity uses tenant, source ID, relationship type, target ID, provenance, and optional rule ID; direct observed observations use `direct`, and the shared 32-character relationship-ID algorithm remains unchanged. Persistent storage currently allows exactly observed and deterministic provenance. Observed rows must have no rule identity. Deterministic rows must have nonblank rule ID and rule version. Observed edges are unique by directed endpoints and type; deterministic edges are unique by directed endpoints, type, and rule ID, allowing separate deterministic rules to produce the same directed edge. Aggregation keeps min/max event-time and sequence bounds and the maximum observed confidence.
 
-`relationship_observations` stores one idempotent lineage row per relationship and source observation. `relationship_evidence` stores aggregate evidence lineage by evidence ID, not raw evidence bytes or fetched locators. Downgrading from `0006` removes only relationship-projection failures, checkpoints, and output tables; observations, evidence references, ingest sequence state, entity projection data, and unrelated projector state survive. Re-upgrade requires explicit relationship-projector registration and rebuild.
+`relationship_observations` stores one idempotent lineage row per relationship and source observation. `relationship_evidence` stores aggregate evidence lineage by evidence ID, not raw evidence bytes or fetched locators. Relationship inspection supports provenance and rule-ID filtering. Migration `0007_deterministic_relationships` adds deterministic storage only: no correlation engine exists yet, no deterministic relationships are generated automatically, and future PR #18 will add the correlation projector and first rule. Downgrading from `0007` removes deterministic relationship rows and lineage, restores the observed-only schema, and preserves observed rows and observed lineage.

@@ -500,6 +500,8 @@ class RelationshipRecord(Base):
     relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     relationship_type: Mapped[str] = mapped_column(String(64), nullable=False)
     provenance: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    rule_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_entity_id: Mapped[str] = mapped_column(String(256), nullable=False)
     source_entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_entity_id: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -530,7 +532,20 @@ class RelationshipRecord(Base):
             "AND relationship_id NOT LIKE '%y%' AND relationship_id NOT LIKE '%z%'",
             name="ck_relationships_id_lower_hex",
         ),
-        CheckConstraint("provenance = 'observed'", name="ck_relationships_observed"),
+        CheckConstraint(
+            "provenance IN ('observed', 'deterministic')",
+            name="ck_relationships_provenance_supported",
+        ),
+        CheckConstraint(
+            "provenance <> 'observed' OR (rule_id IS NULL AND rule_version IS NULL)",
+            name="ck_relationships_observed_rule_identity",
+        ),
+        CheckConstraint(
+            "provenance <> 'deterministic' OR ("
+            "rule_id IS NOT NULL AND rule_version IS NOT NULL AND "
+            "length(trim(rule_id)) > 0 AND length(trim(rule_version)) > 0)",
+            name="ck_relationships_deterministic_rule_identity",
+        ),
         CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_relationships_confidence"),
         CheckConstraint(
             "first_ingest_sequence >= 1", name="ck_relationships_first_sequence_positive"
@@ -544,14 +559,28 @@ class RelationshipRecord(Base):
         CheckConstraint("length(source_entity_type) > 0", name="ck_relationships_source_type"),
         CheckConstraint("length(target_entity_id) > 0", name="ck_relationships_target_id"),
         CheckConstraint("length(target_entity_type) > 0", name="ck_relationships_target_type"),
-        UniqueConstraint(
+        Index(
+            "ix_relationships_observed_direct_edge_unique",
             "projection_version",
             "tenant_id",
             "source_entity_id",
             "relationship_type",
             "target_entity_id",
-            "provenance",
-            name="uq_relationships_projection_tenant_direct_edge",
+            unique=True,
+            sqlite_where=provenance == "observed",
+            postgresql_where=provenance == "observed",
+        ),
+        Index(
+            "ix_relationships_deterministic_rule_edge_unique",
+            "projection_version",
+            "tenant_id",
+            "source_entity_id",
+            "relationship_type",
+            "target_entity_id",
+            "rule_id",
+            unique=True,
+            sqlite_where=provenance == "deterministic",
+            postgresql_where=provenance == "deterministic",
         ),
         Index(
             "ix_relationships_projection_tenant_source",

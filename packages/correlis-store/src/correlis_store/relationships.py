@@ -13,6 +13,8 @@ class ProjectedRelationship:
     relationship_id: str
     relationship_type: RelationshipType
     provenance: ProvenanceClass
+    rule_id: str | None
+    rule_version: str | None
     source_entity_id: str
     source_entity_type: EntityType
     target_entity_id: str

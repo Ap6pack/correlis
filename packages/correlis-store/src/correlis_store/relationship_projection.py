@@ -123,6 +123,8 @@ class RelationshipProjectionHandler:
                 **pk,
                 relationship_type=obs.relationship.value,
                 provenance=ProvenanceClass.OBSERVED.value,
+                rule_id=None,
+                rule_version=None,
                 source_entity_id=obs.subject.id,
                 source_entity_type=obs.subject.type.value,
                 target_entity_id=obs.object.id,
@@ -142,6 +144,8 @@ class RelationshipProjectionHandler:
         expected = (
             obs.relationship.value,
             ProvenanceClass.OBSERVED.value,
+            None,
+            None,
             obs.subject.id,
             obs.subject.type.value,
             obs.object.id,
@@ -150,6 +154,8 @@ class RelationshipProjectionHandler:
         actual = (
             rec.relationship_type,
             rec.provenance,
+            rec.rule_id,
+            rec.rule_version,
             rec.source_entity_id,
             rec.source_entity_type,
             rec.target_entity_id,
