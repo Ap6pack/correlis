@@ -31,11 +31,15 @@ from .correlation_projection import (
 )
 from .correlation_repository import CorrelationRepository
 from .correlation_rules import (
+    BUILTIN_CORRELATION_RULE_CATALOG,
     BUILTIN_CORRELATION_RULES,
     BUILTIN_CORRELATION_RULESET_NAME,
     BUILTIN_CORRELATION_RULESET_VERSION,
+    CorrelationRuleCatalog,
     CorrelationRuleDefinition,
     CorrelationRuleRegistry,
+    CorrelationRulesetNotFound,
+    resolve_correlation_rule_registry,
 )
 from .correlations import (
     CorrelationProjectionConfig,
@@ -126,6 +130,7 @@ __all__ = [
     "ProjectedEntity",
     "ProjectedEntityPage",
     "BUILTIN_CORRELATION_RULES",
+    "BUILTIN_CORRELATION_RULE_CATALOG",
     "BUILTIN_CORRELATION_RULESET_NAME",
     "BUILTIN_CORRELATION_RULESET_VERSION",
     "CORRELATION_PROJECTOR_NAME",
@@ -143,8 +148,11 @@ __all__ = [
     "CorrelationGraphReader",
     "evaluate_cor_seq_001",
     "CorrelationRepository",
+    "CorrelationRuleCatalog",
     "CorrelationRuleDefinition",
     "CorrelationRuleRegistry",
+    "CorrelationRulesetNotFound",
+    "resolve_correlation_rule_registry",
     "correlation_projector_identity",
     "DEFAULT_ENTITY_PROJECTOR_VERSION",
     "ENTITY_PROJECTOR_NAME",

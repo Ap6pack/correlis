@@ -34,6 +34,10 @@ class CorrelationRuleDefinition:
             raise ValueError("evaluation_order must be positive")
 
 
+class CorrelationRulesetNotFound(LookupError):
+    pass
+
+
 class CorrelationRuleRegistry:
     def __init__(self, *, name: str, version: str, definitions) -> None:
         if not name.strip():
@@ -85,6 +89,38 @@ class CorrelationRuleRegistry:
         return hashlib.sha256(encoded).hexdigest()
 
 
+class CorrelationRuleCatalog:
+    def __init__(self, registries: tuple[CorrelationRuleRegistry, ...]) -> None:
+        self._registries = tuple(registries)
+        identities: set[tuple[str, str]] = set()
+        for registry in self._registries:
+            identity = (registry.name, registry.version)
+            if identity in identities:
+                raise ValueError(
+                    f"duplicate correlation ruleset identity: {registry.name}/{registry.version}"
+                )
+            identities.add(identity)
+        self._by_identity = {
+            (registry.name, registry.version): registry for registry in self._registries
+        }
+
+    def get(
+        self, ruleset_name: str, ruleset_version: str
+    ) -> CorrelationRuleRegistry | None:
+        return self._by_identity.get((ruleset_name, ruleset_version))
+
+    def require(self, ruleset_name: str, ruleset_version: str) -> CorrelationRuleRegistry:
+        registry = self.get(ruleset_name, ruleset_version)
+        if registry is None:
+            raise CorrelationRulesetNotFound(
+                f"correlation ruleset not found: {ruleset_name}/{ruleset_version}"
+            )
+        return registry
+
+    def list(self) -> tuple[CorrelationRuleRegistry, ...]:
+        return self._registries
+
+
 BUILTIN_CORRELATION_RULES = CorrelationRuleRegistry(
     name=BUILTIN_CORRELATION_RULESET_NAME,
     version=BUILTIN_CORRELATION_RULESET_VERSION,
@@ -104,3 +140,12 @@ BUILTIN_CORRELATION_RULES = CorrelationRuleRegistry(
         ),
     ),
 )
+
+
+BUILTIN_CORRELATION_RULE_CATALOG = CorrelationRuleCatalog((BUILTIN_CORRELATION_RULES,))
+
+
+def resolve_correlation_rule_registry(
+    ruleset_name: str, ruleset_version: str
+) -> CorrelationRuleRegistry:
+    return BUILTIN_CORRELATION_RULE_CATALOG.require(ruleset_name, ruleset_version)
