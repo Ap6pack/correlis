@@ -80,12 +80,16 @@ class CorrelationRuleRegistry:
                     "confidence": d.confidence,
                     "evaluation_order": d.evaluation_order,
                 }
-                for d in sorted(self._definitions, key=lambda item: item.evaluation_order)
+                for d in sorted(
+                    self._definitions, key=lambda item: item.evaluation_order
+                )
             ],
         }
 
     def manifest_sha256(self) -> str:
-        encoded = json.dumps(self.manifest(), sort_keys=True, separators=(",", ":")).encode()
+        encoded = json.dumps(
+            self.manifest(), sort_keys=True, separators=(",", ":")
+        ).encode()
         return hashlib.sha256(encoded).hexdigest()
 
 
@@ -109,7 +113,9 @@ class CorrelationRuleCatalog:
     ) -> CorrelationRuleRegistry | None:
         return self._by_identity.get((ruleset_name, ruleset_version))
 
-    def require(self, ruleset_name: str, ruleset_version: str) -> CorrelationRuleRegistry:
+    def require(
+        self, ruleset_name: str, ruleset_version: str
+    ) -> CorrelationRuleRegistry:
         registry = self.get(ruleset_name, ruleset_version)
         if registry is None:
             raise CorrelationRulesetNotFound(
@@ -139,6 +145,20 @@ BUILTIN_CORRELATION_RULES = CorrelationRuleRegistry(
             evaluation_order=100,
         ),
     ),
+)
+
+
+COR_SEQ_002 = CorrelationRuleDefinition(
+    rule_id="COR-SEQ-002",
+    rule_version="1",
+    display_name="Suspicious process after exploit",
+    description=(
+        "Correlates suspicious process execution with a prior exploit against the same target."
+    ),
+    reason_code="suspicious_process_after_exploit",
+    output_relationship_type=RelationshipType.COMPROMISED,
+    confidence=0.92,
+    evaluation_order=200,
 )
 
 
