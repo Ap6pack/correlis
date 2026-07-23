@@ -46,9 +46,7 @@ POSTGRES_URL = os.environ.get("CORRELIS_TEST_DATABASE_URL")
 @pytest.fixture(scope="session")
 def postgres_url() -> str:
     if not POSTGRES_URL:
-        pytest.skip(
-            "CORRELIS_TEST_DATABASE_URL is required for PostgreSQL integration tests"
-        )
+        pytest.skip("CORRELIS_TEST_DATABASE_URL is required for PostgreSQL integration tests")
     return POSTGRES_URL
 
 
@@ -67,7 +65,8 @@ def migrated_engine(postgres_url: str):
 
 
 def reset_postgres_store(connection) -> None:
-    connection.execute(text("""
+    connection.execute(
+        text("""
             TRUNCATE TABLE
                 relationship_derivation_evidence,
                 relationship_derivation_supports,
@@ -86,34 +85,31 @@ def reset_postgres_store(connection) -> None:
                 observation_evidence,
                 observations,
                 evidence_refs
-            """))
-    result = connection.execute(text("""
+            """)
+    )
+    result = connection.execute(
+        text("""
             UPDATE observation_ingest_sequence_state
             SET last_sequence = 0
             WHERE singleton_id = 1
-            """))
+            """)
+    )
     if result.rowcount != 1:
-        raise AssertionError(
-            "observation ingest sequence singleton is missing or duplicated"
-        )
+        raise AssertionError("observation ingest sequence singleton is missing or duplicated")
 
 
 @pytest.fixture
 def session_factory(migrated_engine):
     with migrated_engine.begin() as connection:
         reset_postgres_store(connection)
-    return sessionmaker(
-        bind=migrated_engine, class_=Session, expire_on_commit=False, future=True
-    )
+    return sessionmaker(bind=migrated_engine, class_=Session, expire_on_commit=False, future=True)
 
 
 @pytest.fixture
 def sf(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'eval.sqlite'}", future=True)
     Base.metadata.create_all(engine)
-    return sessionmaker(
-        bind=engine, class_=Session, expire_on_commit=False, future=True
-    )
+    return sessionmaker(bind=engine, class_=Session, expire_on_commit=False, future=True)
 
 
 def ev(id):
@@ -131,11 +127,7 @@ def ent(id, type):
     attrs = (
         {"asset_id": id}
         if type == EntityType.ASSET
-        else (
-            {"vulnerability_id": id}
-            if type == EntityType.VULNERABILITY
-            else {"address": id}
-        )
+        else ({"vulnerability_id": id} if type == EntityType.VULNERABILITY else {"address": id})
     )
     return EntityRef(id=id, type=type, label=id, attributes=attrs)
 
@@ -174,9 +166,7 @@ def put(sf, o):
 
 def project(sf, item, version="1"):
     with sf() as s, s.begin():
-        RelationshipProjectionHandler(projection_version=version, clock=lambda: C0)(
-            s, item
-        )
+        RelationshipProjectionHandler(projection_version=version, clock=lambda: C0)(s, item)
 
 
 def vuln(
@@ -277,9 +267,7 @@ def test_prior_observed_vulnerability_produces_complete_immutable_candidate(sf):
         trigger_observation(evidence=[ev("te2"), ev("shared"), ev("te2"), ev("te1")]),
     )
     cand = evaluate(sf, item)
-    rule = [
-        r for r in BUILTIN_CORRELATION_RULES.definitions() if r.rule_id == "COR-SEQ-001"
-    ][0]
+    rule = [r for r in BUILTIN_CORRELATION_RULES.definitions() if r.rule_id == "COR-SEQ-001"][0]
     assert cand is not None
     assert (
         cand.rule_id,
@@ -302,25 +290,16 @@ def test_prior_observed_vulnerability_produces_complete_immutable_candidate(sf):
         "asset-1",
         EntityType.ASSET,
     )
-    assert cand.supporting_relationship_ids == tuple(
-        sorted(cand.supporting_relationship_ids)
-    )
+    assert cand.supporting_relationship_ids == tuple(sorted(cand.supporting_relationship_ids))
     assert cand.trigger_evidence_ids == ("shared", "te1", "te2")
     assert cand.supporting_evidence_ids == ("se1", "se2", "shared")
-    assert (
-        "shared" in cand.trigger_evidence_ids
-        and "shared" in cand.supporting_evidence_ids
-    )
+    assert "shared" in cand.trigger_evidence_ids and "shared" in cand.supporting_evidence_ids
     with pytest.raises(FrozenInstanceError):
         cand.confidence = 0.1
     assert all(
-        "secret://" not in x
-        for x in (*cand.trigger_evidence_ids, *cand.supporting_evidence_ids)
+        "secret://" not in x for x in (*cand.trigger_evidence_ids, *cand.supporting_evidence_ids)
     )
-    assert (
-        a.ingest_sequence < item.ingest_sequence
-        and b.ingest_sequence < item.ingest_sequence
-    )
+    assert a.ingest_sequence < item.ingest_sequence and b.ingest_sequence < item.ingest_sequence
 
 
 def test_nonmatches_and_historical_exclusions(sf):
@@ -333,9 +312,7 @@ def test_nonmatches_and_historical_exclusions(sf):
             object=ent("vuln-1", EntityType.VULNERABILITY),
         ),
     )
-    project(
-        sf, SequencedObservation(same_trigger.ingest_sequence, same_vuln.observation)
-    )
+    project(sf, SequencedObservation(same_trigger.ingest_sequence, same_vuln.observation))
     assert evaluate(sf, same_trigger) is None
     future_trigger = trigger(sf, "future", object_id="asset-future")
     vuln(sf, "future-v", asset="asset-future")
@@ -346,10 +323,7 @@ def test_nonmatches_and_historical_exclusions(sf):
     vuln(sf, "det-v", asset="asset-3", deterministic=True)
     assert evaluate(sf, trigger(sf, "wrong", activity="login")) is None
     assert evaluate(sf, trigger(sf, "missing", object_id=None)) is None
-    assert (
-        evaluate(sf, trigger(sf, "badtype", subject_type=EntityType.VULNERABILITY))
-        is None
-    )
+    assert evaluate(sf, trigger(sf, "badtype", subject_type=EntityType.VULNERABILITY)) is None
     assert evaluate(sf, trigger(sf, "tenant-check", object_id="asset-tenant")) is None
     assert evaluate(sf, trigger(sf, "version-check", object_id="asset-version")) is None
     assert evaluate(sf, trigger(sf, "other-target", object_id="asset-2")) is None
@@ -392,9 +366,7 @@ def test_postgresql_same_sequence_and_future_lineage_exclusions(session_factory)
     assert evaluate(sf, trig) is None
 
 
-def exploit_obs(
-    id, *, tenant="tenant-a", attacker="1.2.3.4", target="asset-1", evidence=None
-):
+def exploit_obs(id, *, tenant="tenant-a", attacker="1.2.3.4", target="asset-1", evidence=None):
     return obs(
         id,
         tenant=tenant,
@@ -462,9 +434,7 @@ def add_manual_exploit(
     provenance=ProvenanceClass.DETERMINISTIC,
 ):
     item = put(sf, exploit_obs(id, attacker=attacker, target=target, evidence=evidence))
-    rid = relationship_id(
-        "tenant-a", attacker, RelationshipType.EXPLOITED, target, provenance, id
-    )
+    rid = relationship_id("tenant-a", attacker, RelationshipType.EXPLOITED, target, provenance, id)
     with sf() as s, s.begin():
         s.add(
             RelationshipRecord(
@@ -474,9 +444,7 @@ def add_manual_exploit(
                 relationship_type=RelationshipType.EXPLOITED.value,
                 provenance=provenance.value,
                 rule_id=id if provenance == ProvenanceClass.DETERMINISTIC else None,
-                rule_version=(
-                    "1" if provenance == ProvenanceClass.DETERMINISTIC else None
-                ),
+                rule_version=("1" if provenance == ProvenanceClass.DETERMINISTIC else None),
                 source_entity_id=attacker,
                 source_entity_type=source_type.value,
                 target_entity_id=target,
@@ -559,21 +527,15 @@ def test_cor_seq_002_prior_support_candidate_identity_evidence_and_immutability(
         "asset-1",
         EntityType.ASSET,
     )
-    assert cand.supporting_relationship_ids == tuple(
-        sorted(cand.supporting_relationship_ids)
-    )
+    assert cand.supporting_relationship_ids == tuple(sorted(cand.supporting_relationship_ids))
     assert len(cand.supporting_relationship_ids) == 2
     assert cand.trigger_evidence_ids == ("shared", "te1", "te2")
     assert cand.supporting_evidence_ids == ("se1", "se2", "shared")
-    assert (
-        "shared" in cand.trigger_evidence_ids
-        and "shared" in cand.supporting_evidence_ids
-    )
+    assert "shared" in cand.trigger_evidence_ids and "shared" in cand.supporting_evidence_ids
     with pytest.raises(FrozenInstanceError):
         cand.confidence = 0.1
     assert all(
-        "secret://" not in x
-        for x in (*cand.trigger_evidence_ids, *cand.supporting_evidence_ids)
+        "secret://" not in x for x in (*cand.trigger_evidence_ids, *cand.supporting_evidence_ids)
     )
     assert (
         first.ingest_sequence < item.ingest_sequence
@@ -590,58 +552,33 @@ def test_cor_seq_002_suspicious_child_must_be_exact_boolean_true(sf, bad):
 @pytest.mark.parametrize("attack_source", [None, "", "   "])
 def test_cor_seq_002_attack_source_required(sf, attack_source):
     add_exploit(sf, "xsrc")
-    assert (
-        eval_002(sf, SequencedObservation(999, proc_obs(attack_source=attack_source)))
-        is None
-    )
+    assert eval_002(sf, SequencedObservation(999, proc_obs(attack_source=attack_source))) is None
 
 
 def test_cor_seq_002_historical_scope_and_endpoint_nonmatches(sf):
-    same_trigger = put(
-        sf, proc_obs("same", target="same-asset", evidence=[ev("same-e")])
-    )
+    same_trigger = put(sf, proc_obs("same", target="same-asset", evidence=[ev("same-e")]))
     same_exp = put(sf, exploit_obs("same-exp", target="same-asset"))
-    project(
-        sf, SequencedObservation(same_trigger.ingest_sequence, same_exp.observation)
-    )
-    future_trigger = put(
-        sf, proc_obs("future", target="future-asset", evidence=[ev("future-e")])
-    )
+    project(sf, SequencedObservation(same_trigger.ingest_sequence, same_exp.observation))
+    future_trigger = put(sf, proc_obs("future", target="future-asset", evidence=[ev("future-e")]))
     add_exploit(sf, "future-exp", target="future-asset")
     add_exploit(sf, "tenant-exp", tenant="tenant-b", target="tenant-asset")
-    project(
-        sf, put(sf, exploit_obs("version-exp2", target="version-asset")), version="2"
-    )
+    project(sf, put(sf, exploit_obs("version-exp2", target="version-asset")), version="2")
     add_exploit(sf, "wrong-source", attacker="9.9.9.9", target="wrong-source-asset")
     add_exploit(sf, "wrong-target", target="wrong-target-asset")
-    assert (
-        eval_002(sf, SequencedObservation(999, proc_obs("no-prior", target="nope")))
-        is None
-    )
+    assert eval_002(sf, SequencedObservation(999, proc_obs("no-prior", target="nope"))) is None
     assert eval_002(sf, same_trigger) is None
     assert eval_002(sf, future_trigger) is None
     assert (
-        eval_002(
-            sf, SequencedObservation(999, proc_obs("tenant", target="tenant-asset"))
-        )
-        is None
+        eval_002(sf, SequencedObservation(999, proc_obs("tenant", target="tenant-asset"))) is None
     )
     assert (
-        eval_002(
-            sf, SequencedObservation(999, proc_obs("version", target="version-asset"))
-        )
-        is None
+        eval_002(sf, SequencedObservation(999, proc_obs("version", target="version-asset"))) is None
     )
     assert (
-        eval_002(
-            sf, SequencedObservation(999, proc_obs("wsrc", target="wrong-source-asset"))
-        )
+        eval_002(sf, SequencedObservation(999, proc_obs("wsrc", target="wrong-source-asset")))
         is None
     )
-    assert (
-        eval_002(sf, SequencedObservation(999, proc_obs("wtgt", target="asset-2")))
-        is None
-    )
+    assert eval_002(sf, SequencedObservation(999, proc_obs("wtgt", target="asset-2"))) is None
 
 
 def test_cor_seq_002_invalid_output_types_return_none(sf):
@@ -653,9 +590,7 @@ def test_cor_seq_002_invalid_output_types_return_none(sf):
         "proc-asset",
         ProvenanceClass.OBSERVED,
     )
-    mutate_exploit(
-        sf, rid, source_type=EntityType.VULNERABILITY, target_type=EntityType.PROCESS
-    )
+    mutate_exploit(sf, rid, source_type=EntityType.VULNERABILITY, target_type=EntityType.PROCESS)
     assert (
         eval_002(
             sf,
@@ -712,9 +647,7 @@ def test_cor_seq_002_future_evidence_excluded_and_reader_dedupes(sf):
 
 
 def test_cor_seq_002_not_in_version_one_registry_catalog_or_execution(sf):
-    assert [d.rule_id for d in BUILTIN_CORRELATION_RULES.definitions()] == [
-        "COR-SEQ-001"
-    ]
+    assert [d.rule_id for d in BUILTIN_CORRELATION_RULES.definitions()] == ["COR-SEQ-001"]
     assert (
         BUILTIN_CORRELATION_RULES.manifest_sha256()
         == "10268cfa7db0510e60fa14049a9d1227cab19cd164e044d643236e5a9d3f93e9"
@@ -808,3 +741,233 @@ def test_registry_dispatch_rejects_unsupported_rule_id(sf):
             relationship_projection_version="1",
             rule_registry=registry,
         )
+
+
+def auth_obs(
+    id="auth",
+    *,
+    tenant="tenant-a",
+    subject="asset-1",
+    target="asset-2",
+    subject_type=EntityType.ASSET,
+    target_type=EntityType.ASSET,
+    evidence=None,
+    event_class=EventClass.AUTHENTICATION,
+):
+    return Observation(
+        id=id,
+        tenant_id=tenant,
+        event_time=T0,
+        ingest_time=T0 + timedelta(minutes=1),
+        source="sensor",
+        sensor_id="s1",
+        event_class=event_class,
+        activity="login",
+        confidence=0.6,
+        subject=ent(subject, subject_type),
+        object=ent(target, target_type) if target else None,
+        relationship=None,
+        evidence=evidence or [ev("te2"), ev("shared"), ev("te1")],
+    )
+
+
+def add_manual_compromise(
+    sf,
+    id,
+    *,
+    tenant="tenant-a",
+    source="1.2.3.4",
+    target="asset-1",
+    version="1",
+    evidence=None,
+    source_type=EntityType.IP_ADDRESS,
+    target_type=EntityType.ASSET,
+    provenance=ProvenanceClass.DETERMINISTIC,
+):
+    item = put(
+        sf,
+        obs(
+            id,
+            tenant=tenant,
+            subject=ent(source, source_type),
+            object=ent(target, target_type),
+            relationship=RelationshipType.COMPROMISED,
+            evidence=evidence or [ev(id + "-e")],
+        ),
+    )
+    rid = relationship_id(
+        tenant,
+        source,
+        RelationshipType.COMPROMISED,
+        target,
+        provenance,
+        id if provenance == ProvenanceClass.DETERMINISTIC else None,
+    )
+    with sf() as s, s.begin():
+        s.add(
+            RelationshipRecord(
+                projection_version=version,
+                tenant_id=tenant,
+                relationship_id=rid,
+                relationship_type=RelationshipType.COMPROMISED.value,
+                provenance=provenance.value,
+                rule_id=id if provenance == ProvenanceClass.DETERMINISTIC else None,
+                rule_version="1" if provenance == ProvenanceClass.DETERMINISTIC else None,
+                source_entity_id=source,
+                source_entity_type=source_type.value,
+                target_entity_id=target,
+                target_entity_type=target_type.value,
+                confidence=0.8,
+                ontology_name="core",
+                ontology_version="1",
+                first_seen=T0,
+                last_seen=T0,
+                first_ingest_sequence=item.ingest_sequence,
+                last_ingest_sequence=item.ingest_sequence,
+                created_at=C0,
+                updated_at=C0,
+            )
+        )
+        s.flush()
+        s.add(
+            RelationshipObservationRecord(
+                projection_version=version,
+                tenant_id=tenant,
+                relationship_id=rid,
+                observation_id=item.observation.id,
+                ingest_sequence=item.ingest_sequence,
+                event_time=item.observation.event_time,
+                created_at=C0,
+            )
+        )
+    return item, rid
+
+
+def eval_003(sf, item, version="1"):
+    from correlis_store import evaluate_cor_seq_003
+
+    with sf() as s:
+        return evaluate_cor_seq_003(
+            CorrelationGraphReader(s), item, relationship_projection_version=version
+        )
+
+
+def test_cor_seq_003_prior_compromises_candidate_evidence_and_immutability(sf):
+    from correlis_store import COR_SEQ_003
+
+    first, rid1 = add_manual_compromise(
+        sf, "c2", evidence=[ev("se2"), ev("shared")], provenance=ProvenanceClass.OBSERVED
+    )
+    second, rid2 = add_manual_compromise(
+        sf,
+        "c1",
+        source="5.6.7.8",
+        evidence=[ev("se1"), ev("se2")],
+    )
+    item = SequencedObservation(
+        999, auth_obs(evidence=[ev("te2"), ev("shared"), ev("te1"), ev("te2")])
+    )
+    cand = eval_003(sf, item)
+    assert cand is not None
+    assert (cand.rule_id, cand.rule_version) == ("COR-SEQ-003", "1")
+    assert cand.reason_code == "compromised_source_authentication"
+    assert cand.relationship_type == RelationshipType.MOVED_LATERALLY_TO
+    assert cand.confidence == 0.90
+    assert (cand.source_entity_id, cand.source_entity_type) == ("asset-1", EntityType.ASSET)
+    assert (cand.target_entity_id, cand.target_entity_type) == ("asset-2", EntityType.ASSET)
+    assert cand.supporting_relationship_ids == tuple(sorted((rid1, rid2)))
+    assert cand.trigger_evidence_ids == ("shared", "te1", "te2")
+    assert cand.supporting_evidence_ids == ("se1", "se2", "shared")
+    assert "shared" in cand.trigger_evidence_ids and "shared" in cand.supporting_evidence_ids
+    assert cand.rule_id == COR_SEQ_003.rule_id
+    with pytest.raises(FrozenInstanceError):
+        cand.confidence = 0.1
+    assert all(
+        "secret://" not in x for x in (*cand.trigger_evidence_ids, *cand.supporting_evidence_ids)
+    )
+    assert (
+        first.ingest_sequence < item.ingest_sequence
+        and second.ingest_sequence < item.ingest_sequence
+    )
+
+
+def test_cor_seq_003_nonmatches_scope_and_invariants(sf):
+    same_trigger = put(sf, auth_obs("same", subject="same-asset"))
+    _, same_rid = add_manual_compromise(sf, "same-c", source="src", target="same-asset")
+    with sf() as s, s.begin():
+        r = s.get(
+            RelationshipRecord,
+            {"projection_version": "1", "tenant_id": "tenant-a", "relationship_id": same_rid},
+        )
+        r.first_ingest_sequence = same_trigger.ingest_sequence
+        r.last_ingest_sequence = same_trigger.ingest_sequence
+        ro = s.get(
+            RelationshipObservationRecord,
+            {
+                "projection_version": "1",
+                "tenant_id": "tenant-a",
+                "relationship_id": same_rid,
+                "observation_id": "same-c",
+            },
+        )
+        ro.ingest_sequence = same_trigger.ingest_sequence
+    assert eval_003(sf, same_trigger) is None
+    future_trigger = put(sf, auth_obs("future", subject="future-asset"))
+    add_manual_compromise(sf, "future-c", target="future-asset")
+    add_manual_compromise(sf, "tenant-c", tenant="tenant-b", target="tenant-asset")
+    add_manual_compromise(sf, "version-c", version="2", target="version-asset")
+    add_manual_compromise(sf, "other-c", target="other-asset")
+    assert eval_003(sf, put(sf, auth_obs("wrong", event_class=EventClass.PROCESS_ACTIVITY))) is None
+    assert eval_003(sf, put(sf, auth_obs("missing", target=None))) is None
+    assert eval_003(sf, put(sf, auth_obs("none", subject="none"))) is None
+    assert eval_003(sf, future_trigger) is None
+    assert eval_003(sf, put(sf, auth_obs("tenant", subject="tenant-asset"))) is None
+    assert eval_003(sf, put(sf, auth_obs("version", subject="version-asset"))) is None
+    assert eval_003(sf, put(sf, auth_obs("other-subject", subject="asset-2"))) is None
+    add_manual_compromise(sf, "badtype-c", target="badtype", target_type=EntityType.VULNERABILITY)
+    with pytest.raises(CorrelationGraphInvariantError):
+        eval_003(sf, put(sf, auth_obs("badtype", subject="badtype")))
+    add_manual_compromise(sf, "invalid-c", target="invalid")
+    assert (
+        eval_003(
+            sf,
+            put(sf, auth_obs("invalid", subject="invalid", target_type=EntityType.VULNERABILITY)),
+        )
+        is None
+    )
+
+
+def test_cor_seq_003_future_evidence_excluded_reader_dedupes_and_no_writes(sf):
+    add_manual_compromise(sf, "old-comp", evidence=[ev("old-e")])
+    trig = put(sf, auth_obs("hist", evidence=[ev("hist-e")]))
+    add_manual_compromise(sf, "future-comp", evidence=[ev("future-e")])
+    with sf() as s:
+        before = s.execute(text("select count(*) from relationships")).scalar_one()
+    cand = eval_003(sf, trig)
+    assert cand is not None
+    assert cand.supporting_evidence_ids == ("old-e",)
+    with sf() as s:
+        assert s.execute(text("select count(*) from relationships")).scalar_one() == before
+        facts = CorrelationGraphReader(s).find_prior_compromises(
+            relationship_projection_version="1",
+            tenant_id="tenant-a",
+            compromised_entity_id="asset-1",
+            before_ingest_sequence=trig.ingest_sequence,
+        )
+        assert len(facts) == 1
+
+
+@pytest.mark.postgres
+def test_postgresql_cor_seq_003_strict_cutoff_scope_and_future_evidence(session_factory):
+    sf = session_factory
+    add_manual_compromise(
+        sf, "pg-obs", evidence=[ev("pg-obs-e")], provenance=ProvenanceClass.OBSERVED
+    )
+    add_manual_compromise(sf, "pg-det", source="5.6.7.8", evidence=[ev("pg-det-e")])
+    add_manual_compromise(sf, "pg-tenant", tenant="tenant-b", evidence=[ev("pg-tenant-e")])
+    add_manual_compromise(sf, "pg-version", version="2", evidence=[ev("pg-version-e")])
+    trig = put(sf, auth_obs("pg-trigger", evidence=[ev("pg-trigger-e")]))
+    add_manual_compromise(sf, "pg-future", evidence=[ev("pg-future-e")])
+    cand = eval_003(sf, trig)
+    assert cand is not None
+    assert cand.supporting_evidence_ids == ("pg-det-e", "pg-obs-e")

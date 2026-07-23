@@ -27,6 +27,7 @@ from .correlation_graph import (
     CorrelationGraphReader,
     evaluate_cor_seq_001,
     evaluate_cor_seq_002,
+    evaluate_cor_seq_003,
     evaluate_correlation_rules,
 )
 from .correlation_projection import (
@@ -43,6 +44,7 @@ from .correlation_rules import (
     BUILTIN_CORRELATION_RULESET_VERSION,
     COR_SEQ_001,
     COR_SEQ_002,
+    COR_SEQ_003,
     CORRELATION_RULESET_V2,
     CorrelationRuleCatalog,
     CorrelationRuleDefinition,
@@ -144,6 +146,7 @@ __all__ = [
     "BUILTIN_CORRELATION_RULESET_VERSION",
     "COR_SEQ_001",
     "COR_SEQ_002",
+    "COR_SEQ_003",
     "CORRELATION_RULESET_V2",
     "CORRELATION_PROJECTOR_NAME",
     "DEFAULT_CORRELATION_PROJECTOR_VERSION",
@@ -161,6 +164,7 @@ __all__ = [
     "CorrelationGraphReader",
     "evaluate_cor_seq_001",
     "evaluate_cor_seq_002",
+    "evaluate_cor_seq_003",
     "evaluate_correlation_rules",
     "CorrelationRepository",
     "CorrelationRuleCatalog",

@@ -5,6 +5,7 @@ from correlis_schema import RelationshipType
 from correlis_store import (
     BUILTIN_CORRELATION_RULE_CATALOG,
     BUILTIN_CORRELATION_RULES,
+    COR_SEQ_003,
     CorrelationRuleCatalog,
     CorrelationRuleDefinition,
     CorrelationRuleRegistry,
@@ -92,6 +93,12 @@ def test_builtin_catalog_contains_versions_one_and_two_in_order():
         "COR-SEQ-002",
     ]
     assert [r["evaluation_order"] for r in v2.manifest()["rules"]] == [100, 200]
+    assert COR_SEQ_003.rule_id == "COR-SEQ-003"
+    assert all(
+        d.rule_id != "COR-SEQ-003"
+        for registry in BUILTIN_CORRELATION_RULE_CATALOG.list()
+        for d in registry.definitions()
+    )
 
 
 def test_unknown_builtin_ruleset_version_does_not_fallback_to_v1():
