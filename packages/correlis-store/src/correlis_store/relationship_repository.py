@@ -7,8 +7,16 @@ from correlis_schema import EntityType, ProvenanceClass, RelationshipType
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from .correlations import (
+    RelationshipDerivation,
+    RelationshipDerivationEvidence,
+    RelationshipDerivationSupport,
+)
 from .models import (
     ObservationRecord,
+    RelationshipDerivationEvidenceRecord,
+    RelationshipDerivationRecord,
+    RelationshipDerivationSupportRecord,
     RelationshipEvidenceRecord,
     RelationshipObservationRecord,
     RelationshipRecord,
@@ -170,7 +178,7 @@ class RelationshipRepository:
                 )
                 .limit(observation_limit)
             ).all()
-            observations = [
+            observations = tuple(
                 RelationshipObservationLineage(
                     o.projection_version,
                     o.tenant_id,
@@ -183,8 +191,8 @@ class RelationshipRepository:
                     r.confidence,
                 )
                 for o, r in obs_rows
-            ]
-            evidence = [
+            )
+            evidence = tuple(
                 RelationshipEvidenceLineage(
                     r.projection_version,
                     r.tenant_id,
@@ -205,5 +213,128 @@ class RelationshipRepository:
                     .order_by(RelationshipEvidenceRecord.evidence_id)
                     .limit(evidence_limit)
                 ).all()
-            ]
-            return RelationshipLineage(_rel(rr), observations, evidence)
+            )
+            derivation_rows = session.scalars(
+                select(RelationshipDerivationRecord)
+                .where(
+                    RelationshipDerivationRecord.relationship_projection_version
+                    == projection_version,
+                    RelationshipDerivationRecord.tenant_id == tenant_id,
+                    RelationshipDerivationRecord.relationship_id == relationship_id,
+                )
+                .order_by(
+                    RelationshipDerivationRecord.trigger_ingest_sequence,
+                    RelationshipDerivationRecord.trigger_observation_id,
+                )
+            ).all()
+            derivations = tuple(
+                RelationshipDerivation(
+                    d.relationship_projection_version,
+                    d.tenant_id,
+                    d.relationship_id,
+                    d.trigger_observation_id,
+                    d.correlation_projection_version,
+                    d.rule_id,
+                    d.rule_version,
+                    int(d.trigger_ingest_sequence),
+                    d.event_time,
+                    d.confidence,
+                    d.reason_code,
+                    d.created_at,
+                )
+                for d in derivation_rows
+            )
+            support_rows = session.scalars(
+                select(RelationshipDerivationSupportRecord)
+                .join(
+                    RelationshipDerivationRecord,
+                    (
+                        RelationshipDerivationRecord.relationship_projection_version
+                        == RelationshipDerivationSupportRecord.relationship_projection_version
+                    )
+                    & (
+                        RelationshipDerivationRecord.tenant_id
+                        == RelationshipDerivationSupportRecord.tenant_id
+                    )
+                    & (
+                        RelationshipDerivationRecord.relationship_id
+                        == RelationshipDerivationSupportRecord.relationship_id
+                    )
+                    & (
+                        RelationshipDerivationRecord.trigger_observation_id
+                        == RelationshipDerivationSupportRecord.trigger_observation_id
+                    ),
+                )
+                .where(
+                    RelationshipDerivationSupportRecord.relationship_projection_version
+                    == projection_version,
+                    RelationshipDerivationSupportRecord.tenant_id == tenant_id,
+                    RelationshipDerivationSupportRecord.relationship_id == relationship_id,
+                )
+                .order_by(
+                    RelationshipDerivationRecord.trigger_ingest_sequence,
+                    RelationshipDerivationSupportRecord.support_relationship_id,
+                )
+            ).all()
+            derivation_supports = tuple(
+                RelationshipDerivationSupport(
+                    s.relationship_projection_version,
+                    s.tenant_id,
+                    s.relationship_id,
+                    s.trigger_observation_id,
+                    s.support_relationship_id,
+                )
+                for s in support_rows
+            )
+            evidence_rows = session.scalars(
+                select(RelationshipDerivationEvidenceRecord)
+                .join(
+                    RelationshipDerivationRecord,
+                    (
+                        RelationshipDerivationRecord.relationship_projection_version
+                        == RelationshipDerivationEvidenceRecord.relationship_projection_version
+                    )
+                    & (
+                        RelationshipDerivationRecord.tenant_id
+                        == RelationshipDerivationEvidenceRecord.tenant_id
+                    )
+                    & (
+                        RelationshipDerivationRecord.relationship_id
+                        == RelationshipDerivationEvidenceRecord.relationship_id
+                    )
+                    & (
+                        RelationshipDerivationRecord.trigger_observation_id
+                        == RelationshipDerivationEvidenceRecord.trigger_observation_id
+                    ),
+                )
+                .where(
+                    RelationshipDerivationEvidenceRecord.relationship_projection_version
+                    == projection_version,
+                    RelationshipDerivationEvidenceRecord.tenant_id == tenant_id,
+                    RelationshipDerivationEvidenceRecord.relationship_id == relationship_id,
+                )
+                .order_by(
+                    RelationshipDerivationRecord.trigger_ingest_sequence,
+                    RelationshipDerivationEvidenceRecord.evidence_role,
+                    RelationshipDerivationEvidenceRecord.evidence_id,
+                )
+            ).all()
+            derivation_evidence = tuple(
+                RelationshipDerivationEvidence(
+                    e.relationship_projection_version,
+                    e.tenant_id,
+                    e.relationship_id,
+                    e.trigger_observation_id,
+                    e.evidence_id,
+                    e.evidence_role,
+                )
+                for e in evidence_rows
+            )
+            return RelationshipLineage(
+                _rel(rr),
+                observations,
+                evidence,
+                derivations,
+                derivation_supports,
+                derivation_evidence,
+            )

@@ -31,7 +31,12 @@ from .correlation_rules import (
     CorrelationRuleDefinition,
     CorrelationRuleRegistry,
 )
-from .correlations import CorrelationProjectionConfig
+from .correlations import (
+    CorrelationProjectionConfig,
+    RelationshipDerivation,
+    RelationshipDerivationEvidence,
+    RelationshipDerivationSupport,
+)
 from .credential_security import CredentialPepperConfigurationError
 from .database import create_database_engine, create_session_factory
 from .entities import (
@@ -120,6 +125,9 @@ __all__ = [
     "CORRELATION_PROJECTOR_NAME",
     "DEFAULT_CORRELATION_PROJECTOR_VERSION",
     "CorrelationProjectionConfig",
+    "RelationshipDerivation",
+    "RelationshipDerivationEvidence",
+    "RelationshipDerivationSupport",
     "CorrelationRelationshipFact",
     "DerivedRelationshipCandidate",
     "CorrelationGraphReader",

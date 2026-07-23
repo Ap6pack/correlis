@@ -17,6 +17,7 @@ from correlis_store import (
     ObservationPageAnchor,
     ObservationQueryFilters,
     ObservationRepository,
+    RelationshipRepository,
     WriteDisposition,
     entity_projector_identity,
 )
@@ -167,7 +168,7 @@ def test_alembic_revision_ids_fit_default_version_table():
     assert all(revision_id for revision_id in revision_ids)
     assert len(set(revision_ids)) == len(revision_ids)
     assert all(len(revision_id) <= 32 for revision_id in revision_ids)
-    assert script.get_current_head() == "0008_correlation_config"
+    assert script.get_current_head() == "0009_correlation_lineage"
 
 
 def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypatch):
@@ -517,3 +518,242 @@ def test_relationship_deterministic_migration_constraints(tmp_path, monkeypatch)
         assert connection.execute(text("SELECT COUNT(*) FROM relationships")).scalar_one() == 1
     assert "rule_id" not in {c["name"] for c in inspect(engine).get_columns("relationships")}
     command.upgrade(config, "head")
+
+
+def test_correlation_lineage_migration_schema_constraints_and_downgrade(tmp_path, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+
+    db = tmp_path / "lineage.sqlite"
+    monkeypatch.setenv("CORRELIS_DATABASE_URL", f"sqlite:///{db}")
+    config = Config("alembic.ini")
+    command.upgrade(config, "0008_correlation_config")
+    engine = create_engine(f"sqlite:///{db}", future=True)
+    sf = sessionmaker(bind=engine, class_=Session, expire_on_commit=False, future=True)
+    ObservationRepository(sf).put(observation("obs-1", ev=evidence("ev-1")))
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.execute(
+            text(
+                "INSERT INTO projector_checkpoints "
+                "(projector_name, projector_version, last_processed_sequence, status, "
+                "last_failure_sequence, created_at, updated_at, last_processed_at) VALUES "
+                "('relationship-projection','1',0,'idle',NULL,'2026-01-01','2026-01-01',NULL), "
+                "('correlation-projection','corr-1',0,'idle',NULL,'2026-01-01','2026-01-01',NULL)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO correlation_projection_configs "
+                "(projector_name, projection_version, relationship_projector_name, "
+                "relationship_projection_version, ruleset_name, ruleset_version, "
+                "rule_manifest_sha256, rule_manifest_json, ontology_name, ontology_version, "
+                "created_at) VALUES "
+                "('correlation-projection','corr-1','relationship-projection','1',"
+                "'rules','1',:hash,'{}','core','1','2026-01-01')"
+            ),
+            {"hash": "d" * 64},
+        )
+        rel_sql = text(
+            "INSERT INTO relationships "
+            "(projection_version, tenant_id, relationship_id, relationship_type, provenance, "
+            "rule_id, rule_version, source_entity_id, source_entity_type, target_entity_id, "
+            "target_entity_type, confidence, ontology_name, ontology_version, first_seen, "
+            "last_seen, first_ingest_sequence, last_ingest_sequence, created_at, updated_at) "
+            "VALUES ('1','tenant-a',:rid,'has_vulnerability',:prov,:rule_id,"
+            ":rule_version,:src,'asset',:tgt,'vulnerability',0.7,'core','1',"
+            "'2026-01-01','2026-01-01',1,1,'2026-01-01','2026-01-01')"
+        )
+        connection.execute(
+            rel_sql,
+            {
+                "rid": "a" * 32,
+                "prov": "deterministic",
+                "rule_id": "cor-seq-001",
+                "rule_version": "1",
+                "src": "asset-1",
+                "tgt": "vuln-1",
+            },
+        )
+        connection.execute(
+            rel_sql,
+            {
+                "rid": "b" * 32,
+                "prov": "observed",
+                "rule_id": None,
+                "rule_version": None,
+                "src": "asset-2",
+                "tgt": "vuln-2",
+            },
+        )
+
+    command.upgrade(config, "head")
+    insp = inspect(engine)
+    lineage_tables = {
+        "relationship_derivations",
+        "relationship_derivation_supports",
+        "relationship_derivation_evidence",
+    }
+    assert lineage_tables.issubset(set(insp.get_table_names()))
+    for table in lineage_tables:
+        assert insp.get_pk_constraint(table)["constrained_columns"]
+        assert insp.get_foreign_keys(table)
+        assert inspect(engine).get_check_constraints(table)
+    assert {i["name"] for i in insp.get_indexes("relationship_derivations")} >= {
+        "ix_relationship_derivations_correlation_sequence",
+        "ix_relationship_derivations_relationship_sequence",
+        "ix_relationship_derivations_rule_sequence",
+        "ix_relationship_derivations_trigger_observation",
+    }
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        for table in lineage_tables:
+            assert connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one() == 0
+        good = text(
+            "INSERT INTO relationship_derivations "
+            "(relationship_projection_version, tenant_id, relationship_id, "
+            "trigger_observation_id, correlation_projector_name, "
+            "correlation_projection_version, rule_id, rule_version, "
+            "trigger_ingest_sequence, event_time, confidence, reason_code, created_at) "
+            "VALUES ('1','tenant-a',:rid,'obs-1','correlation-projection','corr-1',"
+            ":rule_id,'1',1,'2026-01-01',0.8,:reason,'2026-01-01')"
+        )
+        connection.execute(good, {"rid": "a" * 32, "rule_id": "cor-seq-001", "reason": "matched"})
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                good, {"rid": "c" * 32, "rule_id": "cor-seq-001", "reason": "matched"}
+            )
+        with pytest.raises(IntegrityError):
+            connection.execute(good, {"rid": "a" * 32, "rule_id": "   ", "reason": "matched"})
+        with pytest.raises(IntegrityError):
+            connection.execute(good, {"rid": "a" * 32, "rule_id": "other", "reason": "   "})
+        support_sql = text(
+            "INSERT INTO relationship_derivation_supports "
+            "(relationship_projection_version, tenant_id, relationship_id, "
+            "trigger_observation_id, support_relationship_id, created_at) "
+            "VALUES ('1','tenant-a',:rid,'obs-1',:support,'2026-01-01')"
+        )
+        connection.execute(support_sql, {"rid": "a" * 32, "support": "b" * 32})
+        with pytest.raises(IntegrityError):
+            connection.execute(support_sql, {"rid": "a" * 32, "support": "a" * 32})
+        ev_sql = text(
+            "INSERT INTO relationship_derivation_evidence "
+            "(relationship_projection_version, tenant_id, relationship_id, "
+            "trigger_observation_id, evidence_id, evidence_role, created_at) "
+            "VALUES ('1','tenant-a',:rid,'obs-1','ev-1',:role,'2026-01-01')"
+        )
+        connection.execute(ev_sql, {"rid": "a" * 32, "role": "trigger"})
+        connection.execute(ev_sql, {"rid": "a" * 32, "role": "support"})
+        with pytest.raises(IntegrityError):
+            connection.execute(ev_sql, {"rid": "a" * 32, "role": "bad"})
+    command.downgrade(config, "0008_correlation_config")
+    assert lineage_tables.isdisjoint(set(inspect(engine).get_table_names()))
+    with engine.begin() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM relationships")).scalar_one() == 2
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM correlation_projection_configs")
+            ).scalar_one()
+            == 1
+        )
+    command.upgrade(config, "head")
+
+
+def test_relationship_repository_lineage_returns_derivations(session_factory):
+    repo = ObservationRepository(session_factory)
+    repo.put(observation("obs-1", ev=evidence("ev-1")))
+    repo.put(observation("obs-2", ev=evidence("ev-2", "b" * 64)))
+    with session_factory.begin() as session:
+        session.execute(
+            text(
+                "INSERT INTO projector_checkpoints "
+                "(projector_name, projector_version, last_processed_sequence, status, "
+                "last_failure_sequence, created_at, updated_at, last_processed_at) VALUES "
+                "('relationship-projection','1',0,'idle',NULL,'2026-01-01','2026-01-01',NULL), "
+                "('correlation-projection','corr-1',0,'idle',NULL,'2026-01-01','2026-01-01',NULL)"
+            )
+        )
+        session.execute(
+            text(
+                "INSERT INTO correlation_projection_configs "
+                "(projector_name, projection_version, relationship_projector_name, "
+                "relationship_projection_version, ruleset_name, ruleset_version, "
+                "rule_manifest_sha256, rule_manifest_json, ontology_name, ontology_version, "
+                "created_at) VALUES "
+                "('correlation-projection','corr-1','relationship-projection','1',"
+                "'rules','1',:hash,'{}','core','1','2026-01-01')"
+            ),
+            {"hash": "d" * 64},
+        )
+        rel_sql = text(
+            "INSERT INTO relationships "
+            "(projection_version, tenant_id, relationship_id, relationship_type, provenance, "
+            "rule_id, rule_version, source_entity_id, source_entity_type, target_entity_id, "
+            "target_entity_type, confidence, ontology_name, ontology_version, first_seen, "
+            "last_seen, first_ingest_sequence, last_ingest_sequence, created_at, updated_at) "
+            "VALUES ('1','tenant-a',:rid,'has_vulnerability',:prov,:rule_id,"
+            ":rule_version,:src,'asset',:tgt,'vulnerability',0.7,'core','1',"
+            "'2026-01-01','2026-01-01',1,1,'2026-01-01','2026-01-01')"
+        )
+        session.execute(
+            rel_sql,
+            {
+                "rid": "a" * 32,
+                "prov": "deterministic",
+                "rule_id": "r",
+                "rule_version": "1",
+                "src": "asset-1",
+                "tgt": "vuln-1",
+            },
+        )
+        session.execute(
+            rel_sql,
+            {
+                "rid": "b" * 32,
+                "prov": "observed",
+                "rule_id": None,
+                "rule_version": None,
+                "src": "asset-2",
+                "tgt": "vuln-2",
+            },
+        )
+        session.execute(
+            text(
+                "INSERT INTO relationship_derivations VALUES "
+                "('1','tenant-a',:rid,'obs-2','correlation-projection','corr-1',"
+                "'r','1',2,'2026-01-02',0.8,'matched','2026-01-02'),"
+                "('1','tenant-a',:rid,'obs-1','correlation-projection','corr-1',"
+                "'r','1',1,'2026-01-01',0.8,'matched','2026-01-01')"
+            ),
+            {"rid": "a" * 32},
+        )
+        session.execute(
+            text(
+                "INSERT INTO relationship_derivation_supports VALUES "
+                "('1','tenant-a',:rid,'obs-1',:support,'2026-01-01')"
+            ),
+            {"rid": "a" * 32, "support": "b" * 32},
+        )
+        session.execute(
+            text(
+                "INSERT INTO relationship_derivation_evidence VALUES "
+                "('1','tenant-a',:rid,'obs-1','ev-2','support','2026-01-01'),"
+                "('1','tenant-a',:rid,'obs-1','ev-1','trigger','2026-01-01')"
+            ),
+            {"rid": "a" * 32},
+        )
+
+    lineage = RelationshipRepository(session_factory).get_lineage("1", "tenant-a", "a" * 32)
+    assert lineage is not None
+    assert [d.trigger_observation_id for d in lineage.derivations] == ["obs-1", "obs-2"]
+    assert [s.support_relationship_id for s in lineage.derivation_supports] == ["b" * 32]
+    assert [(e.evidence_role, e.evidence_id) for e in lineage.derivation_evidence] == [
+        ("support", "ev-2"),
+        ("trigger", "ev-1"),
+    ]
+    assert not hasattr(lineage.derivation_evidence[0], "locator")
+    assert (
+        RelationshipRepository(session_factory).get_lineage("1", "tenant-a", "b" * 32).derivations
+        == ()
+    )
+    assert RelationshipRepository(session_factory).get_lineage("2", "tenant-a", "a" * 32) is None

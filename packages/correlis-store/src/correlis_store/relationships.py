@@ -5,6 +5,12 @@ from datetime import datetime
 
 from correlis_schema import EntityType, ProvenanceClass, RelationshipType
 
+from .correlations import (
+    RelationshipDerivation,
+    RelationshipDerivationEvidence,
+    RelationshipDerivationSupport,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ProjectedRelationship:
@@ -58,8 +64,11 @@ class RelationshipEvidenceLineage:
 @dataclass(frozen=True, slots=True)
 class RelationshipLineage:
     relationship: ProjectedRelationship
-    observations: list[RelationshipObservationLineage]
-    evidence: list[RelationshipEvidenceLineage]
+    observations: tuple[RelationshipObservationLineage, ...]
+    evidence: tuple[RelationshipEvidenceLineage, ...]
+    derivations: tuple[RelationshipDerivation, ...] = ()
+    derivation_supports: tuple[RelationshipDerivationSupport, ...] = ()
+    derivation_evidence: tuple[RelationshipDerivationEvidence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
