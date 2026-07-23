@@ -18,6 +18,15 @@ from .collectors import (
     CollectorStatus,
     IssuedCollectorCredential,
 )
+from .correlation_repository import CorrelationRepository
+from .correlation_rules import (
+    BUILTIN_CORRELATION_RULES,
+    BUILTIN_CORRELATION_RULESET_NAME,
+    BUILTIN_CORRELATION_RULESET_VERSION,
+    CorrelationRuleDefinition,
+    CorrelationRuleRegistry,
+)
+from .correlations import CorrelationProjectionConfig
 from .credential_security import CredentialPepperConfigurationError
 from .database import create_database_engine, create_session_factory
 from .entities import (
@@ -75,9 +84,12 @@ from .projections import (
     ProjectorStatus,
 )
 from .relationship_projection import (
+    CORRELATION_PROJECTOR_NAME,
+    DEFAULT_CORRELATION_PROJECTOR_VERSION,
     DEFAULT_RELATIONSHIP_PROJECTOR_VERSION,
     RELATIONSHIP_PROJECTOR_NAME,
     RelationshipProjectionHandler,
+    correlation_projector_identity,
     relationship_projector_identity,
 )
 from .relationship_repository import RelationshipRepository
@@ -97,6 +109,16 @@ __all__ = [
     "EntityObservationLineage",
     "ProjectedEntity",
     "ProjectedEntityPage",
+    "BUILTIN_CORRELATION_RULES",
+    "BUILTIN_CORRELATION_RULESET_NAME",
+    "BUILTIN_CORRELATION_RULESET_VERSION",
+    "CORRELATION_PROJECTOR_NAME",
+    "DEFAULT_CORRELATION_PROJECTOR_VERSION",
+    "CorrelationProjectionConfig",
+    "CorrelationRepository",
+    "CorrelationRuleDefinition",
+    "CorrelationRuleRegistry",
+    "correlation_projector_identity",
     "DEFAULT_ENTITY_PROJECTOR_VERSION",
     "ENTITY_PROJECTOR_NAME",
     "EntityProjectionHandler",

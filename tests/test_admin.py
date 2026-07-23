@@ -169,3 +169,38 @@ def test_entity_projection_cli_failed_blocked_paused_and_retry(tmp_path, monkeyp
 
     assert admin.main(["projectors", "list"]) == 0
     assert admin.main(["collectors", "list"]) == 0
+
+
+def test_correlation_projection_cli_paths(tmp_path, monkeypatch, capsys):
+    handle, sf = make_resources(tmp_path, monkeypatch)
+    assert admin.main(["correlation-projection", "show", "--version", "1"]) == 1
+    assert handle.disposed is True
+    handle, sf = make_resources(tmp_path, monkeypatch)
+    ProjectionRepository(sf).register_projector(
+        __import__("correlis_store").relationship_projector_identity("1")
+    )
+    assert (
+        admin.main(
+            [
+                "correlation-projection",
+                "register",
+                "--version",
+                "1",
+                "--relationship-projection-version",
+                "1",
+            ]
+        )
+        == 0
+    )
+    registered = json.loads(capsys.readouterr().out)
+    assert registered["config"]["identity"] == {"name": "correlation-projection", "version": "1"}
+    assert registered["checkpoint"]["last_processed_sequence"] == 0
+    assert admin.main(["correlation-projection", "show", "--version", "1"]) == 0
+    assert json.loads(capsys.readouterr().out)["config"]["ruleset_name"] == "correlis-sequence"
+    assert admin.main(["correlation-projection", "rules", "--version", "1"]) == 0
+    assert json.loads(capsys.readouterr().out)["rules"][0]["rule_id"] == "COR-SEQ-001"
+    assert (
+        admin.main(["projectors", "register", "--name", "correlation-projection", "--version", "9"])
+        == 1
+    )
+    assert "correlation-projection register" in capsys.readouterr().err

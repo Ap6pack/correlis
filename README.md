@@ -350,3 +350,17 @@ correlis-admin relationships list --projection-version 1 --tenant-id tenant-a --
 correlis-admin relationships show --projection-version 1 --tenant-id tenant-a --relationship-id <id>
 correlis-admin relationships lineage --projection-version 1 --tenant-id tenant-a --relationship-id <id>
 ```
+
+### Correlation projector configuration
+
+Correlis includes a reserved `correlation-projection` projector identity for a future deterministic correlation projector. It is not a runnable projector yet: there is no correlation handler, no `run` command, and no deterministic relationship generation in this release.
+
+Correlation projection must be registered with the specialized CLI so the checkpoint and durable configuration are created atomically:
+
+```bash
+correlis-admin correlation-projection register --version 1 --relationship-projection-version 1
+correlis-admin correlation-projection show --version 1
+correlis-admin correlation-projection rules --version 1
+```
+
+The stored configuration depends on an existing `relationship-projection` graph version and records the immutable built-in ruleset manifest. The built-in ruleset contains only `COR-SEQ-001` (`Exploit against known vulnerability`), which is defined for future use but is not evaluated. The system does not support background workers, public APIs, dynamic rules, AI rule generation, or correlation execution for this projector yet.
