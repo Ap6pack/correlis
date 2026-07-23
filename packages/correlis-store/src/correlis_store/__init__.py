@@ -22,7 +22,12 @@ from .correlation_evaluation import (
     CorrelationRelationshipFact,
     DerivedRelationshipCandidate,
 )
-from .correlation_graph import CorrelationGraphReader, evaluate_cor_seq_001
+from .correlation_graph import (
+    CorrelationGraphInvariantError,
+    CorrelationGraphReader,
+    evaluate_cor_seq_001,
+    evaluate_cor_seq_002,
+)
 from .correlation_projection import (
     CorrelationConfigurationMismatch,
     CorrelationDependencyNotReady,
@@ -35,6 +40,7 @@ from .correlation_rules import (
     BUILTIN_CORRELATION_RULES,
     BUILTIN_CORRELATION_RULESET_NAME,
     BUILTIN_CORRELATION_RULESET_VERSION,
+    COR_SEQ_002,
     CorrelationRuleCatalog,
     CorrelationRuleDefinition,
     CorrelationRuleRegistry,
@@ -133,6 +139,7 @@ __all__ = [
     "BUILTIN_CORRELATION_RULE_CATALOG",
     "BUILTIN_CORRELATION_RULESET_NAME",
     "BUILTIN_CORRELATION_RULESET_VERSION",
+    "COR_SEQ_002",
     "CORRELATION_PROJECTOR_NAME",
     "DEFAULT_CORRELATION_PROJECTOR_VERSION",
     "CorrelationProjectionConfig",
@@ -145,8 +152,10 @@ __all__ = [
     "RelationshipDerivationSupport",
     "CorrelationRelationshipFact",
     "DerivedRelationshipCandidate",
+    "CorrelationGraphInvariantError",
     "CorrelationGraphReader",
     "evaluate_cor_seq_001",
+    "evaluate_cor_seq_002",
     "CorrelationRepository",
     "CorrelationRuleCatalog",
     "CorrelationRuleDefinition",
