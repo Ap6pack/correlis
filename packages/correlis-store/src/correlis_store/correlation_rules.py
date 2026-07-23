@@ -80,16 +80,12 @@ class CorrelationRuleRegistry:
                     "confidence": d.confidence,
                     "evaluation_order": d.evaluation_order,
                 }
-                for d in sorted(
-                    self._definitions, key=lambda item: item.evaluation_order
-                )
+                for d in sorted(self._definitions, key=lambda item: item.evaluation_order)
             ],
         }
 
     def manifest_sha256(self) -> str:
-        encoded = json.dumps(
-            self.manifest(), sort_keys=True, separators=(",", ":")
-        ).encode()
+        encoded = json.dumps(self.manifest(), sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 
 
@@ -108,14 +104,10 @@ class CorrelationRuleCatalog:
             (registry.name, registry.version): registry for registry in self._registries
         }
 
-    def get(
-        self, ruleset_name: str, ruleset_version: str
-    ) -> CorrelationRuleRegistry | None:
+    def get(self, ruleset_name: str, ruleset_version: str) -> CorrelationRuleRegistry | None:
         return self._by_identity.get((ruleset_name, ruleset_version))
 
-    def require(
-        self, ruleset_name: str, ruleset_version: str
-    ) -> CorrelationRuleRegistry:
+    def require(self, ruleset_name: str, ruleset_version: str) -> CorrelationRuleRegistry:
         registry = self.get(ruleset_name, ruleset_version)
         if registry is None:
             raise CorrelationRulesetNotFound(
@@ -160,6 +152,20 @@ COR_SEQ_002 = CorrelationRuleDefinition(
     output_relationship_type=RelationshipType.COMPROMISED,
     confidence=0.92,
     evaluation_order=200,
+)
+
+
+COR_SEQ_003 = CorrelationRuleDefinition(
+    rule_id="COR-SEQ-003",
+    rule_version="1",
+    display_name="Authentication from compromised source",
+    description=(
+        "Correlates authentication activity from a previously compromised entity to another entity."
+    ),
+    reason_code="compromised_source_authentication",
+    output_relationship_type=RelationshipType.MOVED_LATERALLY_TO,
+    confidence=0.90,
+    evaluation_order=300,
 )
 
 

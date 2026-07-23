@@ -283,6 +283,25 @@ def test_multiple_triggers_aggregate_and_corruption_raises(sf):
         run_correlation(sf)
 
 
+def auth_obs(id="auth", *, when=T2 + timedelta(hours=1), evidence_id="ev-auth"):
+    return Observation(
+        id=id,
+        tenant_id="tenant-a",
+        event_time=when,
+        ingest_time=when + timedelta(minutes=1),
+        source="sensor",
+        sensor_id="s4",
+        event_class=EventClass.AUTHENTICATION,
+        activity="login",
+        severity="medium",
+        confidence=0.8,
+        subject=ref("asset-1", EntityType.ASSET),
+        object=ref("asset-2", EntityType.ASSET),
+        relationship=None,
+        evidence=[ev(evidence_id)],
+    )
+
+
 def proc_obs(id="proc", *, when=T2, evidence_id="ev-proc"):
     return Observation(
         id=id,
@@ -308,10 +327,11 @@ def test_version_two_projection_persists_exploit_to_compromise_chain_idempotentl
     register_versions(sf, "2", "2", "2")
     put(sf, vuln_obs())
     put(sf, exploit_obs())
-    proc_seq = put(sf, proc_obs())
+    put(sf, proc_obs())
+    auth_seq = put(sf, auth_obs())
     run_relationship(sf, version="2")
     out = run_correlation(sf, version="2", rel_version="2", ruleset_version="2")
-    assert out.ending_sequence == proc_seq
+    assert out.ending_sequence == auth_seq
     exploited = relationship_id(
         "tenant-a",
         "asset-1",
@@ -342,6 +362,9 @@ def test_version_two_projection_persists_exploit_to_compromise_chain_idempotentl
         assert rels[compromised].rule_id == "COR-SEQ-002"
         assert rels[compromised].rule_version == "1"
         assert rels[compromised].confidence == 0.92
+        assert all(
+            r.relationship_type != RelationshipType.MOVED_LATERALLY_TO.value for r in rels.values()
+        )
         support = s.get(
             RelationshipDerivationSupportRecord,
             {
@@ -362,16 +385,19 @@ def test_version_two_projection_persists_exploit_to_compromise_chain_idempotentl
             ).all()
         )
         assert roles == {("ev-proc", "trigger"), ("ev-trigger", "support")}
-        assert s.scalar(
-            select(func.count()).select_from(RelationshipDerivationRecord).where(
-                RelationshipDerivationRecord.relationship_projection_version == "2"
+        assert (
+            s.scalar(
+                select(func.count())
+                .select_from(RelationshipDerivationRecord)
+                .where(RelationshipDerivationRecord.relationship_projection_version == "2")
             )
-        ) == 2
+            == 2
+        )
         cp = s.get(
             ProjectorCheckpointRecord,
             {"projector_name": "correlation-projection", "projector_version": "2"},
         )
-        assert cp.last_processed_sequence == proc_seq
+        assert cp.last_processed_sequence == auth_seq
 
 
 def test_version_one_and_two_graph_state_are_isolated(sf):
@@ -459,21 +485,24 @@ def test_correlation_projection_rolls_back_all_candidates_and_checkpoint_on_seco
     with pytest.raises(ProjectionInvariantError):
         run_correlation(sf, version="2", rel_version="2", ruleset_version="2")
     with sf() as s:
-        assert s.get(
-            RelationshipRecord,
-            {
-                "projection_version": "2",
-                "tenant_id": "tenant-a",
-                "relationship_id": relationship_id(
-                    "tenant-a",
-                    "asset-1",
-                    RelationshipType.EXPLOITED,
-                    "asset-1",
-                    ProvenanceClass.DETERMINISTIC,
-                    "COR-SEQ-001",
-                ),
-            },
-        ) is None
+        assert (
+            s.get(
+                RelationshipRecord,
+                {
+                    "projection_version": "2",
+                    "tenant_id": "tenant-a",
+                    "relationship_id": relationship_id(
+                        "tenant-a",
+                        "asset-1",
+                        RelationshipType.EXPLOITED,
+                        "asset-1",
+                        ProvenanceClass.DETERMINISTIC,
+                        "COR-SEQ-001",
+                    ),
+                },
+            )
+            is None
+        )
         cp = s.get(
             ProjectorCheckpointRecord,
             {"projector_name": "correlation-projection", "projector_version": "2"},
