@@ -18,6 +18,11 @@ from .collectors import (
     CollectorStatus,
     IssuedCollectorCredential,
 )
+from .correlation_evaluation import (
+    CorrelationRelationshipFact,
+    DerivedRelationshipCandidate,
+)
+from .correlation_graph import CorrelationGraphReader, evaluate_cor_seq_001
 from .correlation_repository import CorrelationRepository
 from .correlation_rules import (
     BUILTIN_CORRELATION_RULES,
@@ -115,6 +120,10 @@ __all__ = [
     "CORRELATION_PROJECTOR_NAME",
     "DEFAULT_CORRELATION_PROJECTOR_VERSION",
     "CorrelationProjectionConfig",
+    "CorrelationRelationshipFact",
+    "DerivedRelationshipCandidate",
+    "CorrelationGraphReader",
+    "evaluate_cor_seq_001",
     "CorrelationRepository",
     "CorrelationRuleDefinition",
     "CorrelationRuleRegistry",
