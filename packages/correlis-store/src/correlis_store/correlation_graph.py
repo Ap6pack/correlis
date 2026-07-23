@@ -15,7 +15,7 @@ from .correlation_evaluation import (
     CorrelationRelationshipFact,
     DerivedRelationshipCandidate,
 )
-from .correlation_rules import BUILTIN_CORRELATION_RULES, COR_SEQ_002
+from .correlation_rules import COR_SEQ_001, COR_SEQ_002, CorrelationRuleRegistry
 from .models import (
     ObservationEvidenceRecord,
     RelationshipObservationRecord,
@@ -194,13 +194,6 @@ class CorrelationGraphReader:
         return tuple(self._session.scalars(stmt).all())
 
 
-def _cor_seq_001_definition():
-    for definition in BUILTIN_CORRELATION_RULES.definitions():
-        if definition.rule_id == "COR-SEQ-001":
-            return definition
-    raise RuntimeError("COR-SEQ-001 rule definition is not registered")
-
-
 def evaluate_cor_seq_001(
     graph: CorrelationGraphReader,
     item: SequencedObservation,
@@ -210,7 +203,7 @@ def evaluate_cor_seq_001(
     observation = item.observation
     if observation.activity != "exploit_attempt" or observation.object is None:
         return None
-    rule = _cor_seq_001_definition()
+    rule = COR_SEQ_001
     try:
         CORE_ONTOLOGY.validate_edge(
             rule.output_relationship_type, observation.subject, observation.object
@@ -311,3 +304,35 @@ def evaluate_cor_seq_002(
             before_ingest_sequence=item.ingest_sequence,
         ),
     )
+
+
+_BUILTIN_EVALUATORS = {
+    "COR-SEQ-001": evaluate_cor_seq_001,
+    "COR-SEQ-002": evaluate_cor_seq_002,
+}
+
+
+def evaluate_correlation_rules(
+    graph: CorrelationGraphReader,
+    item: SequencedObservation,
+    *,
+    relationship_projection_version: str,
+    rule_registry: CorrelationRuleRegistry,
+) -> tuple[DerivedRelationshipCandidate, ...]:
+    candidates: list[DerivedRelationshipCandidate] = []
+    for definition in sorted(
+        rule_registry.definitions(), key=lambda rule: rule.evaluation_order
+    ):
+        evaluator = _BUILTIN_EVALUATORS.get(definition.rule_id)
+        if evaluator is None:
+            raise ProjectionInvariantError(
+                f"unsupported built-in correlation rule: {definition.rule_id}"
+            )
+        candidate = evaluator(
+            graph,
+            item,
+            relationship_projection_version=relationship_projection_version,
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    return tuple(candidates)

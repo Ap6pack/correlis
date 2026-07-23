@@ -127,24 +127,25 @@ class CorrelationRuleCatalog:
         return self._registries
 
 
+COR_SEQ_001 = CorrelationRuleDefinition(
+    rule_id="COR-SEQ-001",
+    rule_version="1",
+    display_name="Exploit against known vulnerability",
+    description=(
+        "Defines the future deterministic relationship from exploit activity to "
+        "a known vulnerability."
+    ),
+    reason_code="exploit_against_known_vulnerability",
+    output_relationship_type=RelationshipType.EXPLOITED,
+    confidence=0.85,
+    evaluation_order=100,
+)
+
+
 BUILTIN_CORRELATION_RULES = CorrelationRuleRegistry(
     name=BUILTIN_CORRELATION_RULESET_NAME,
     version=BUILTIN_CORRELATION_RULESET_VERSION,
-    definitions=(
-        CorrelationRuleDefinition(
-            rule_id="COR-SEQ-001",
-            rule_version="1",
-            display_name="Exploit against known vulnerability",
-            description=(
-                "Defines the future deterministic relationship from exploit activity to "
-                "a known vulnerability."
-            ),
-            reason_code="exploit_against_known_vulnerability",
-            output_relationship_type=RelationshipType.EXPLOITED,
-            confidence=0.85,
-            evaluation_order=100,
-        ),
-    ),
+    definitions=(COR_SEQ_001,),
 )
 
 
@@ -162,7 +163,19 @@ COR_SEQ_002 = CorrelationRuleDefinition(
 )
 
 
-BUILTIN_CORRELATION_RULE_CATALOG = CorrelationRuleCatalog((BUILTIN_CORRELATION_RULES,))
+CORRELATION_RULESET_V2 = CorrelationRuleRegistry(
+    name=BUILTIN_CORRELATION_RULESET_NAME,
+    version="2",
+    definitions=(
+        COR_SEQ_001,
+        COR_SEQ_002,
+    ),
+)
+
+
+BUILTIN_CORRELATION_RULE_CATALOG = CorrelationRuleCatalog(
+    (BUILTIN_CORRELATION_RULES, CORRELATION_RULESET_V2)
+)
 
 
 def resolve_correlation_rule_registry(

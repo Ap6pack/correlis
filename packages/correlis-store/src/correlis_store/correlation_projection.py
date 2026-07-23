@@ -8,7 +8,7 @@ from correlis_ontology import CORE_ONTOLOGY, OntologyRegistry, OntologyValidatio
 from correlis_schema import EntityRef, ProvenanceClass, relationship_id
 from sqlalchemy.orm import Session
 
-from .correlation_graph import CorrelationGraphReader, evaluate_cor_seq_001
+from .correlation_graph import CorrelationGraphReader, evaluate_correlation_rules
 from .correlation_rules import CorrelationRuleRegistry
 from .models import (
     CorrelationProjectionConfigRecord,
@@ -84,10 +84,13 @@ class CorrelationProjectionHandler:
         self._validate_config(session)
         self._require_relationship_checkpoint(session, item.ingest_sequence)
         graph = CorrelationGraphReader(session)
-        candidate = evaluate_cor_seq_001(
-            graph, item, relationship_projection_version=self._relationship_projection_version
+        candidates = evaluate_correlation_rules(
+            graph,
+            item,
+            relationship_projection_version=self._relationship_projection_version,
+            rule_registry=self._rule_registry,
         )
-        if candidate is None:
+        if not candidates:
             return
         trigger_time = item.observation.event_time
         if not _aware(trigger_time):
@@ -99,6 +102,11 @@ class CorrelationProjectionHandler:
             raise ProjectionInvariantError(
                 "correlation projection clock must return a timezone-aware datetime"
             )
+        for candidate in candidates:
+            self._persist_candidate(session, item, candidate, now)
+        session.flush()
+
+    def _persist_candidate(self, session: Session, item: SequencedObservation, candidate, now):
         try:
             self._ontology_registry.validate_edge(
                 candidate.relationship_type,
@@ -136,7 +144,6 @@ class CorrelationProjectionHandler:
             self._insert_derivation_evidence(session, item, rid, evidence_id, "trigger", now)
         for evidence_id in candidate.supporting_evidence_ids:
             self._insert_derivation_evidence(session, item, rid, evidence_id, "support", now)
-        session.flush()
 
     def _validate_config(self, session: Session) -> None:
         rec = session.get(
