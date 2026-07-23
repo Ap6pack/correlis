@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from correlis_schema import (
     EntityRef,
     EntityType,
@@ -24,11 +27,75 @@ from correlis_store import (
 )
 from correlis_store.models import Base, RelationshipRecord
 from correlis_store.observation_sequence import SequencedObservation
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 C0 = datetime(2026, 2, 1, tzinfo=UTC)
+POSTGRES_URL = os.environ.get("CORRELIS_TEST_DATABASE_URL")
+
+
+@pytest.fixture(scope="session")
+def postgres_url() -> str:
+    if not POSTGRES_URL:
+        pytest.skip("CORRELIS_TEST_DATABASE_URL is required for PostgreSQL integration tests")
+    return POSTGRES_URL
+
+
+@pytest.fixture(scope="session")
+def migrated_engine(postgres_url: str):
+    os.environ["CORRELIS_DATABASE_URL"] = postgres_url
+    config = Config("alembic.ini")
+    command.downgrade(config, "base")
+    command.upgrade(config, "head")
+    engine = create_engine(postgres_url, future=True)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        command.downgrade(config, "base")
+
+
+def reset_postgres_store(connection) -> None:
+    connection.execute(
+        text(
+            """
+            TRUNCATE TABLE
+                relationship_evidence,
+                relationship_observations,
+                relationships,
+                entity_identity_claims,
+                entity_evidence,
+                entity_observations,
+                entities,
+                projector_failures,
+                correlation_projection_configs,
+                projector_checkpoints,
+                observation_ingest_entries,
+                observation_evidence,
+                observations,
+                evidence_refs
+            """
+        )
+    )
+    result = connection.execute(
+        text(
+            """
+            UPDATE observation_ingest_sequence_state
+            SET last_sequence = 0
+            WHERE singleton_id = 1
+            """
+        )
+    )
+    if result.rowcount != 1:
+        raise AssertionError("observation ingest sequence singleton is missing or duplicated")
+
+
+@pytest.fixture
+def session_factory(migrated_engine):
+    with migrated_engine.begin() as connection:
+        reset_postgres_store(connection)
+    return sessionmaker(bind=migrated_engine, class_=Session, expire_on_commit=False, future=True)
 
 
 @pytest.fixture
