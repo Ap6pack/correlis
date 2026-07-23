@@ -739,7 +739,7 @@ def test_postgresql_cor_seq_002_strict_cutoff_support_scope_and_future_evidence(
     add_exploit(sf, "pg-obs", attacker="5.6.7.8", evidence=[ev("pg-obs-e")])
     add_exploit(sf, "pg-other-tenant", tenant="tenant-b", evidence=[ev("pg-tenant-e")])
     trig = put(sf, proc_obs("pg-trigger", evidence=[ev("pg-trigger-e")]))
-    add_exploit(sf, "pg-future", evidence=[ev("pg-future-e")])
+    add_manual_exploit(sf, "pg-future", evidence=[ev("pg-future-e")])
     cand = eval_002(sf, trig)
     assert cand is not None
     assert cand.supporting_evidence_ids == ("pg-old-e",)
