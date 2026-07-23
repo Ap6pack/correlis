@@ -719,7 +719,7 @@ def test_cor_seq_002_not_in_version_one_registry_catalog_or_execution(sf):
         BUILTIN_CORRELATION_RULES.manifest_sha256()
         == "10268cfa7db0510e60fa14049a9d1227cab19cd164e044d643236e5a9d3f93e9"
     )
-    assert BUILTIN_CORRELATION_RULE_CATALOG.get("correlis-sequence", "2") is None
+    assert BUILTIN_CORRELATION_RULE_CATALOG.get("correlis-sequence", "2") is not None
     assert COR_SEQ_002.rule_id == "COR-SEQ-002"
 
 
@@ -737,3 +737,74 @@ def test_postgresql_cor_seq_002_strict_cutoff_support_scope_and_future_evidence(
     cand = eval_002(sf, trig)
     assert cand is not None
     assert cand.supporting_evidence_ids == ("pg-det-e", "pg-old-e")
+
+
+def test_registry_dispatch_evaluates_only_configured_rules_and_orders_candidates(sf):
+    from correlis_store import evaluate_correlation_rules, resolve_correlation_rule_registry
+
+    vuln(sf, "dispatch-vuln")
+    exploit_item = trigger(sf, "dispatch-exploit")
+    add_manual_exploit(sf, "dispatch-support", attacker="1.2.3.4", target="asset-1")
+    proc_item = put(sf, proc_obs("dispatch-proc"))
+    with sf() as s:
+        graph = CorrelationGraphReader(s)
+        assert [
+            c.rule_id
+            for c in evaluate_correlation_rules(
+                graph,
+                exploit_item,
+                relationship_projection_version="1",
+                rule_registry=resolve_correlation_rule_registry("correlis-sequence", "1"),
+            )
+        ] == ["COR-SEQ-001"]
+        assert [
+            c.rule_id
+            for c in evaluate_correlation_rules(
+                graph,
+                proc_item,
+                relationship_projection_version="1",
+                rule_registry=resolve_correlation_rule_registry("correlis-sequence", "1"),
+            )
+        ] == []
+        assert [
+            c.rule_id
+            for c in evaluate_correlation_rules(
+                graph,
+                proc_item,
+                relationship_projection_version="1",
+                rule_registry=resolve_correlation_rule_registry("correlis-sequence", "2"),
+            )
+        ] == ["COR-SEQ-002"]
+
+
+def test_registry_dispatch_rejects_unsupported_rule_id(sf):
+    from correlis_store import (
+        CorrelationRuleDefinition,
+        CorrelationRuleRegistry,
+        ProjectionInvariantError,
+        evaluate_correlation_rules,
+    )
+
+    registry = CorrelationRuleRegistry(
+        name="correlis-sequence",
+        version="bad",
+        definitions=(
+            CorrelationRuleDefinition(
+                rule_id="COR-SEQ-999",
+                rule_version="1",
+                display_name="Bad",
+                description="Bad",
+                reason_code="bad",
+                output_relationship_type=RelationshipType.EXPLOITED,
+                confidence=0.1,
+                evaluation_order=100,
+            ),
+        ),
+    )
+    with sf() as s, pytest.raises(ProjectionInvariantError, match="unsupported"):
+        evaluate_correlation_rules(
+            CorrelationGraphReader(s),
+            SequencedObservation(999, trigger_observation()),
+            relationship_projection_version="1",
+            rule_registry=registry,
+        )
