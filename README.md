@@ -364,3 +364,9 @@ correlis-admin correlation-projection rules --version 1
 ```
 
 The stored configuration depends on an existing `relationship-projection` graph version and records the immutable built-in ruleset manifest. The built-in ruleset contains only `COR-SEQ-001` (`Exploit against known vulnerability`). `COR-SEQ-001` can now be evaluated as a pure operation against an existing relationship graph: historical support is bounded by durable ingest sequence, not event time or aggregate latest relationship state. This evaluator returns immutable candidates only; it does not persist deterministic relationships, store derivation lineage, or run a correlation projector. The correlation projector still has no `run` command. Persistence and derivation lineage come in the next PR, and the system does not support background workers, public APIs, dynamic rules, AI rule generation, or correlation execution for this projector yet.
+
+### Correlation derivation lineage storage
+
+Migration `0009_correlation_lineage` adds durable read-side lineage tables for future deterministic relationship derivations. `relationship_derivations` records the tenant, relationship projection version, derived relationship ID, trigger observation ID, trigger ingest sequence, correlation projection version, rule identity, confidence, reason code, and timestamps. `relationship_derivation_supports` stores only supporting relationship identities in the same tenant and relationship projection version, and `relationship_derivation_evidence` stores evidence IDs with `trigger` or `support` roles only.
+
+This storage is intentionally inert: no correlation projection handler, run command, dependency checkpoint enforcement, or automatic deterministic relationship writes exist yet. The next PR will connect `COR-SEQ-001` to `ProjectionRunner`.

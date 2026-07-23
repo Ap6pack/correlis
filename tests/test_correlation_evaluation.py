@@ -61,6 +61,9 @@ def reset_postgres_store(connection) -> None:
         text(
             """
             TRUNCATE TABLE
+                relationship_derivation_evidence,
+                relationship_derivation_supports,
+                relationship_derivations,
                 relationship_evidence,
                 relationship_observations,
                 relationships,

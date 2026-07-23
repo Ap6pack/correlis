@@ -745,3 +745,162 @@ class RelationshipEvidenceRecord(Base):
             "ix_relationship_evidence_evidence", "projection_version", "tenant_id", "evidence_id"
         ),
     )
+
+
+class RelationshipDerivationRecord(Base):
+    __tablename__ = "relationship_derivations"
+
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    trigger_observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    correlation_projector_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    correlation_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    trigger_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["relationship_projection_version", "tenant_id", "relationship_id"],
+            [
+                "relationships.projection_version",
+                "relationships.tenant_id",
+                "relationships.relationship_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "trigger_observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        ForeignKeyConstraint(
+            ["trigger_ingest_sequence"], ["observation_ingest_entries.ingest_sequence"]
+        ),
+        ForeignKeyConstraint(
+            ["correlation_projector_name", "correlation_projection_version"],
+            [
+                "correlation_projection_configs.projector_name",
+                "correlation_projection_configs.projection_version",
+            ],
+        ),
+        CheckConstraint(
+            "correlation_projector_name = 'correlation-projection'",
+            name="ck_relationship_derivations_projector_name",
+        ),
+        CheckConstraint(
+            "trigger_ingest_sequence >= 1", name="ck_relationship_derivations_trigger_sequence"
+        ),
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1", name="ck_relationship_derivations_confidence"
+        ),
+        CheckConstraint("length(trim(rule_id)) > 0", name="ck_relationship_derivations_rule_id"),
+        CheckConstraint(
+            "length(trim(rule_version)) > 0", name="ck_relationship_derivations_rule_version"
+        ),
+        CheckConstraint(
+            "length(trim(reason_code)) > 0", name="ck_relationship_derivations_reason_code"
+        ),
+        Index(
+            "ix_relationship_derivations_correlation_sequence",
+            "correlation_projector_name",
+            "correlation_projection_version",
+            "trigger_ingest_sequence",
+        ),
+        Index(
+            "ix_relationship_derivations_relationship_sequence",
+            "relationship_projection_version",
+            "tenant_id",
+            "relationship_id",
+            "trigger_ingest_sequence",
+        ),
+        Index(
+            "ix_relationship_derivations_rule_sequence",
+            "relationship_projection_version",
+            "tenant_id",
+            "rule_id",
+            "trigger_ingest_sequence",
+        ),
+        Index(
+            "ix_relationship_derivations_trigger_observation", "tenant_id", "trigger_observation_id"
+        ),
+    )
+
+
+class RelationshipDerivationSupportRecord(Base):
+    __tablename__ = "relationship_derivation_supports"
+
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    trigger_observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    support_relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            [
+                "relationship_projection_version",
+                "tenant_id",
+                "relationship_id",
+                "trigger_observation_id",
+            ],
+            [
+                "relationship_derivations.relationship_projection_version",
+                "relationship_derivations.tenant_id",
+                "relationship_derivations.relationship_id",
+                "relationship_derivations.trigger_observation_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["relationship_projection_version", "tenant_id", "support_relationship_id"],
+            [
+                "relationships.projection_version",
+                "relationships.tenant_id",
+                "relationships.relationship_id",
+            ],
+        ),
+        CheckConstraint(
+            "support_relationship_id <> relationship_id",
+            name="ck_relationship_derivation_supports_not_self",
+        ),
+    )
+
+
+class RelationshipDerivationEvidenceRecord(Base):
+    __tablename__ = "relationship_derivation_evidence"
+
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    trigger_observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    evidence_role: Mapped[str] = mapped_column(String(16), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            [
+                "relationship_projection_version",
+                "tenant_id",
+                "relationship_id",
+                "trigger_observation_id",
+            ],
+            [
+                "relationship_derivations.relationship_projection_version",
+                "relationship_derivations.tenant_id",
+                "relationship_derivations.relationship_id",
+                "relationship_derivations.trigger_observation_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "evidence_id"], ["evidence_refs.tenant_id", "evidence_refs.evidence_id"]
+        ),
+        CheckConstraint(
+            "evidence_role IN ('trigger', 'support')",
+            name="ck_relationship_derivation_evidence_role",
+        ),
+    )
