@@ -10,7 +10,8 @@ from enum import StrEnum
 
 from correlis_schema import EntityType, ProvenanceClass, RelationshipType
 from correlis_store import (
-    BUILTIN_CORRELATION_RULES,
+    BUILTIN_CORRELATION_RULESET_NAME,
+    BUILTIN_CORRELATION_RULESET_VERSION,
     CORRELATION_PROJECTOR_NAME,
     CollectorRepository,
     CorrelationProjectionHandler,
@@ -28,6 +29,7 @@ from correlis_store import (
     create_session_factory,
     entity_projector_identity,
     relationship_projector_identity,
+    resolve_correlation_rule_registry,
 )
 
 
@@ -109,6 +111,8 @@ def build_parser():
     x = cp.add_parser("register")
     x.add_argument("--version", required=True)
     x.add_argument("--relationship-projection-version", required=True)
+    x.add_argument("--ruleset-name", default=BUILTIN_CORRELATION_RULESET_NAME)
+    x.add_argument("--ruleset-version", default=BUILTIN_CORRELATION_RULESET_VERSION)
     x = cp.add_parser("show")
     x.add_argument("--version", required=True)
     x = cp.add_parser("rules")
@@ -254,6 +258,8 @@ def main(argv=None) -> int:
             config = correlations.register_projection(
                 projection_version=args.version,
                 relationship_projection_version=args.relationship_projection_version,
+                ruleset_name=args.ruleset_name,
+                ruleset_version=args.ruleset_version,
             )
             checkpoint = projections.get_checkpoint(correlation_projector_identity(args.version))
             out = {"config": config, "checkpoint": checkpoint}
@@ -267,9 +273,12 @@ def main(argv=None) -> int:
             config = correlations.get_projection_config(args.version)
             if config is None:
                 raise RuntimeError("correlation projection configuration not found")
+            rule_registry = resolve_correlation_rule_registry(
+                config.ruleset_name, config.ruleset_version
+            )
             if (
-                config.rule_manifest_sha256 != BUILTIN_CORRELATION_RULES.manifest_sha256()
-                or config.rule_manifest != BUILTIN_CORRELATION_RULES.manifest()
+                config.rule_manifest_sha256 != rule_registry.manifest_sha256()
+                or config.rule_manifest != rule_registry.manifest()
             ):
                 raise RuntimeError(
                     "stored correlation rule manifest does not match built-in registry"
@@ -279,9 +288,12 @@ def main(argv=None) -> int:
             config = correlations.get_projection_config(args.version)
             if config is None:
                 raise RuntimeError("correlation projection configuration not found")
+            rule_registry = resolve_correlation_rule_registry(
+                config.ruleset_name, config.ruleset_version
+            )
             if (
-                config.rule_manifest_sha256 != BUILTIN_CORRELATION_RULES.manifest_sha256()
-                or config.rule_manifest != BUILTIN_CORRELATION_RULES.manifest()
+                config.rule_manifest_sha256 != rule_registry.manifest_sha256()
+                or config.rule_manifest != rule_registry.manifest()
             ):
                 raise RuntimeError(
                     "stored correlation rule manifest does not match built-in registry"
@@ -289,6 +301,7 @@ def main(argv=None) -> int:
             handler = CorrelationProjectionHandler(
                 projection_version=args.version,
                 relationship_projection_version=config.relationship_projection_version,
+                rule_registry=rule_registry,
             )
             out = ProjectionRunner(sf).run_batch(
                 handler.projector_identity,

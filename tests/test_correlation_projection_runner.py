@@ -26,6 +26,7 @@ from correlis_store import (
     ProjectorStatus,
     RelationshipProjectionHandler,
     relationship_projector_identity,
+    resolve_correlation_rule_registry,
 )
 from correlis_store.models import (
     Base,
@@ -123,6 +124,7 @@ def run_correlation(sf, version="1", rel_version="1", limit=100):
     h = CorrelationProjectionHandler(
         projection_version=version,
         relationship_projection_version=rel_version,
+        rule_registry=resolve_correlation_rule_registry("correlis-sequence", "1"),
         clock=lambda: C0,
     )
     return ProjectionRunner(sf, clock=lambda: C0).run_batch(h.projector_identity, h, limit=limit)

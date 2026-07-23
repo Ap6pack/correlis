@@ -9,7 +9,7 @@ from correlis_schema import EntityRef, ProvenanceClass, relationship_id
 from sqlalchemy.orm import Session
 
 from .correlation_graph import CorrelationGraphReader, evaluate_cor_seq_001
-from .correlation_rules import BUILTIN_CORRELATION_RULES, CorrelationRuleRegistry
+from .correlation_rules import CorrelationRuleRegistry
 from .models import (
     CorrelationProjectionConfigRecord,
     ProjectorCheckpointRecord,
@@ -61,7 +61,7 @@ class CorrelationProjectionHandler:
         *,
         projection_version: str,
         relationship_projection_version: str,
-        rule_registry: CorrelationRuleRegistry = BUILTIN_CORRELATION_RULES,
+        rule_registry: CorrelationRuleRegistry,
         ontology_registry: OntologyRegistry = CORE_ONTOLOGY,
         clock: Callable[[], datetime] | None = None,
     ) -> None:

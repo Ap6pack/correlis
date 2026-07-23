@@ -356,7 +356,11 @@ correlis-admin relationships lineage --projection-version 1 --tenant-id tenant-a
 Correlis includes an operator-controlled `correlation-projection` projector that executes the built-in pure `COR-SEQ-001` evaluator through `ProjectionRunner`. Correlation projection must be registered with the specialized CLI so the checkpoint and durable configuration are created atomically:
 
 ```bash
-correlis-admin correlation-projection register --version 1 --relationship-projection-version 1
+correlis-admin correlation-projection register \
+  --version 1 \
+  --relationship-projection-version 1 \
+  --ruleset-name correlis-sequence \
+  --ruleset-version 1
 correlis-admin correlation-projection show --version 1
 correlis-admin correlation-projection rules --version 1
 ```
@@ -373,7 +377,7 @@ correlis-admin correlation-projection run \
   --limit 100
 ```
 
-The stored correlation configuration is authoritative: the run command loads the configured relationship graph version and verifies the stored ruleset manifest and hash before executing. The relationship projection checkpoint must already be caught up through each trigger ingest sequence; correlation does not run, wait for, or repair the relationship projector automatically.
+Correlation rulesets are resolved by immutable ruleset name and version. The existing `correlis-sequence/1` ruleset contains only `COR-SEQ-001`, and no version 2 ruleset exists in this PR. The stored correlation configuration is authoritative: the rules and run commands load the configured relationship graph version, resolve the exact stored ruleset identity, and verify the stored ruleset manifest and hash before executing. Stored configurations never automatically upgrade; new rules require a new ruleset version, and operators can register a new correlation projection version with a new relationship graph version for that ruleset. The relationship projection checkpoint must already be caught up through each trigger ingest sequence; correlation does not run, wait for, or repair the relationship projector automatically.
 
 Only `COR-SEQ-001` (`Exploit against known vulnerability`) is implemented. It derives deterministic `exploited` relationships from exploit attempts against entities with prior observed `has_vulnerability` support in the configured relationship graph. Historical support is bounded by durable ingest sequence, not event time or aggregate latest relationship state, so future relationship state cannot affect an earlier trigger. The projector persists deterministic relationship output, trigger observation lineage, aggregate evidence, derivation records, supporting relationship IDs, and trigger/support evidence roles atomically with correlation checkpoint advancement. Correlis still has no background correlation worker, scheduler, queue, public correlation API, dynamic rule loading, AI rule generation, incident persistence, or Attack Scene persistence.
 

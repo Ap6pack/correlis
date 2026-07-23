@@ -10,7 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from .correlation_rules import BUILTIN_CORRELATION_RULES, CorrelationRuleRegistry
+from .correlation_rules import (
+    BUILTIN_CORRELATION_RULESET_NAME,
+    BUILTIN_CORRELATION_RULESET_VERSION,
+    resolve_correlation_rule_registry,
+)
 from .correlations import CorrelationProjectionConfig
 from .models import CorrelationProjectionConfigRecord, ProjectorCheckpointRecord
 from .projections import (
@@ -73,10 +77,12 @@ class CorrelationRepository:
         *,
         projection_version: str,
         relationship_projection_version: str,
-        rule_registry: CorrelationRuleRegistry = BUILTIN_CORRELATION_RULES,
+        ruleset_name: str = BUILTIN_CORRELATION_RULESET_NAME,
+        ruleset_version: str = BUILTIN_CORRELATION_RULESET_VERSION,
         ontology_registry: OntologyRegistry = CORE_ONTOLOGY,
     ) -> CorrelationProjectionConfig:
         identity = correlation_projector_identity(projection_version)
+        rule_registry = resolve_correlation_rule_registry(ruleset_name, ruleset_version)
         manifest = rule_registry.manifest()
         manifest_hash = rule_registry.manifest_sha256()
         with self._session_scope() as session:

@@ -195,6 +195,46 @@ def test_correlation_projection_cli_paths(tmp_path, monkeypatch, capsys):
     registered = json.loads(capsys.readouterr().out)
     assert registered["config"]["identity"] == {"name": "correlation-projection", "version": "1"}
     assert registered["checkpoint"]["last_processed_sequence"] == 0
+
+    ProjectionRepository(sf).register_projector(
+        __import__("correlis_store").relationship_projector_identity("2")
+    )
+    assert (
+        admin.main(
+            [
+                "correlation-projection",
+                "register",
+                "--version",
+                "2",
+                "--relationship-projection-version",
+                "2",
+                "--ruleset-name",
+                "correlis-sequence",
+                "--ruleset-version",
+                "1",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        admin.main(
+            [
+                "correlation-projection",
+                "register",
+                "--version",
+                "3",
+                "--relationship-projection-version",
+                "2",
+                "--ruleset-name",
+                "correlis-sequence",
+                "--ruleset-version",
+                "999",
+            ]
+        )
+        == 1
+    )
+    assert "correlation ruleset not found" in capsys.readouterr().err
     assert admin.main(["correlation-projection", "show", "--version", "1"]) == 0
     assert json.loads(capsys.readouterr().out)["config"]["ruleset_name"] == "correlis-sequence"
     assert admin.main(["correlation-projection", "rules", "--version", "1"]) == 0
