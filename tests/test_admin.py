@@ -204,3 +204,40 @@ def test_correlation_projection_cli_paths(tmp_path, monkeypatch, capsys):
         == 1
     )
     assert "correlation-projection register" in capsys.readouterr().err
+
+
+def test_correlation_projection_run_cli_uses_stored_graph_and_exit_codes(
+    tmp_path, monkeypatch, capsys
+):
+    _, sf = make_resources(tmp_path, monkeypatch)
+    ProjectionRepository(sf).register_projector(
+        __import__("correlis_store").relationship_projector_identity("1")
+    )
+    assert (
+        admin.main(
+            [
+                "correlation-projection",
+                "register",
+                "--version",
+                "1",
+                "--relationship-projection-version",
+                "1",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    ObservationRepository(sf).put_with_result(obs("corr-noop"))
+    assert admin.main(["correlation-projection", "run", "--version", "1", "--limit", "1"]) == 1
+    assert "dependency" in capsys.readouterr().err
+    assert admin.main(["relationship-projection", "run", "--version", "1", "--limit", "1"]) == 0
+    capsys.readouterr()
+    assert (
+        admin.main(
+            ["correlation-projection", "run", "--version", "1", "--limit", "1", "--retry-failed"]
+        )
+        == 0
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["outcome"] == "caught_up"
+    assert out["processed_count"] == 1

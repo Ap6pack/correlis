@@ -237,18 +237,32 @@ The relationship projection is a separate versioned projector named `relationshi
 
 The projector is operationally independent from the entity projection. It validates the subject, object, and directed relationship against the configured ontology and persists endpoint IDs and endpoint entity types directly from the canonical observation. It intentionally has no foreign key to `entities`; later graph-building can choose compatible entity and relationship projection versions without requiring relationship materialization to wait for entity projection catch-up.
 
-Only explicit observed relationships are materialized: `observation.relationship is not None` and `observation.object is not None`. The storage schema also reserves deterministic provenance for a future correlation projector. Observed rows have no rule identity; deterministic rows require durable nonblank `rule_id` and `rule_version`. The shared 32-character relationship ID remains unchanged, and deterministic uniqueness includes the rule ID so separate deterministic rules may produce the same directed edge. The persistent projector does not generate deterministic relationships automatically and does not implement derived correlation, analytic or AI-generated relationships, analyst decisions, incidents, Attack Scene persistence, entity merging, or automatic entity resolution. Future PR #18 will add the correlation projector and first rule.
+Explicit observed relationships are materialized when `observation.relationship is not None` and `observation.object is not None`. The operator-controlled correlation projector also materializes deterministic relationships for `COR-SEQ-001`. Observed rows have no rule identity; deterministic rows require durable nonblank `rule_id` and `rule_version`. The shared 32-character relationship ID remains unchanged, and deterministic uniqueness includes the rule ID so separate deterministic rules may produce the same directed edge. The persistent projectors do not implement analytic or AI-generated relationships, analyst decisions, incidents, Attack Scene persistence, entity merging, or automatic entity resolution.
 
 ## Correlation projector configuration
 
-The `correlation-projection` identity reserves the architecture slot for a future deterministic correlation projector. Registration is intentionally specialized: operators use `correlis-admin correlation-projection register` instead of the generic projector registration path so an initial checkpoint and configuration row are created in one atomic transaction.
+The `correlation-projection` identity runs deterministic correlation under operator control. Registration is specialized: operators use `correlis-admin correlation-projection register` instead of the generic projector registration path so an initial checkpoint and configuration row are created in one atomic transaction.
 
-Each correlation configuration references exactly one existing `relationship-projection` version. That relationship graph dependency prevents a correlation projector from being configured before its source graph exists and prevents multiple correlation versions from claiming the same graph version.
+Each correlation configuration references exactly one existing `relationship-projection` version. That stored graph version is authoritative at run time. Before evaluating trigger sequence `N`, correlation requires the configured relationship projection checkpoint to have `last_processed_sequence >= N`. The relationship projector may be paused or failed and still satisfy already-committed sequences, but correlation never runs, waits for, or repairs the dependency automatically.
 
-The built-in immutable ruleset manifest is stored with the configuration and currently contains only `COR-SEQ-001`, `Exploit against known vulnerability`. `COR-SEQ-001` can now be evaluated as a pure operation over the stored relationship and observation-lineage tables. Historical support is bounded by durable ingest sequence, which ensures prior observed `has_vulnerability` support is strictly before the trigger observation and avoids event-time ordering or aggregate latest-state evidence. The evaluator emits immutable candidates only; it does not persist deterministic relationships or derivation lineage. The correlation projector still has no `run` command, correlation handler, deterministic relationship write path, background worker, public API, dynamic rules, or AI dependency. Persistence and derivation lineage come in the next PR.
+Operators execute one bounded batch at a time:
+
+```bash
+correlis-admin relationship-projection run \
+  --version 1 \
+  --limit 100
+
+correlis-admin correlation-projection run \
+  --version 1 \
+  --limit 100
+```
+
+The built-in immutable ruleset manifest is stored with the configuration and currently contains only `COR-SEQ-001`, `Exploit against known vulnerability`. `COR-SEQ-001` executes as a pure operation over the stored relationship and observation-lineage tables. Historical support is bounded by durable ingest sequence, which ensures prior observed `has_vulnerability` support is strictly before the trigger observation and avoids event-time ordering or aggregate latest-state evidence; future relationship state cannot affect an earlier trigger. Matching exploit attempts persist deterministic `exploited` relationships with rule ID `COR-SEQ-001`, rule version `1`, deterministic provenance, and confidence `0.85`.
+
+Correlation output, trigger observation lineage, aggregate relationship evidence, derivation records, support relationship lineage, evidence-role lineage, and checkpoint advancement commit atomically through `ProjectionRunner`. The system has no background correlation worker, scheduler, queue, public correlation API, dynamic rule loading, AI rule generation, incident persistence, or Attack Scene persistence.
 
 ## Correlation derivation lineage storage
 
 The store now has durable correlation derivation lineage tables for deterministic relationships produced by a future correlation projector. The schema isolates lineage by tenant, relationship projection version, relationship ID, and trigger observation identity. Supporting relationships are referenced by relationship ID only and must exist in the same tenant and relationship projection version. Evidence lineage stores only evidence IDs and the role that evidence played (`trigger` or `support`); it does not expose locators, raw observation payloads, metadata, or evidence bytes through relationship lineage reads.
 
-This change does not execute correlation rules, does not run `COR-SEQ-001`, and does not generate deterministic relationships. A later PR will wire `COR-SEQ-001` into `ProjectionRunner`.
+The correlation projector writes this lineage for `COR-SEQ-001` atomically with deterministic relationship output and checkpoint advancement.

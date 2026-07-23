@@ -13,6 +13,7 @@ from correlis_store import (
     BUILTIN_CORRELATION_RULES,
     CORRELATION_PROJECTOR_NAME,
     CollectorRepository,
+    CorrelationProjectionHandler,
     CorrelationRepository,
     EntityProjectionHandler,
     EntityRepository,
@@ -112,6 +113,10 @@ def build_parser():
     x.add_argument("--version", required=True)
     x = cp.add_parser("rules")
     x.add_argument("--version", required=True)
+    x = cp.add_parser("run")
+    x.add_argument("--version", required=True)
+    x.add_argument("--limit", type=int, default=100)
+    x.add_argument("--retry-failed", action="store_true")
     rp = sub.add_parser("relationship-projection").add_subparsers(dest="cmd", required=True)
     x = rp.add_parser("register")
     x.add_argument("--version", required=True)
@@ -262,11 +267,37 @@ def main(argv=None) -> int:
             config = correlations.get_projection_config(args.version)
             if config is None:
                 raise RuntimeError("correlation projection configuration not found")
-            if config.rule_manifest_sha256 != BUILTIN_CORRELATION_RULES.manifest_sha256():
+            if (
+                config.rule_manifest_sha256 != BUILTIN_CORRELATION_RULES.manifest_sha256()
+                or config.rule_manifest != BUILTIN_CORRELATION_RULES.manifest()
+            ):
                 raise RuntimeError(
                     "stored correlation rule manifest does not match built-in registry"
                 )
             out = config.rule_manifest
+        elif args.group == "correlation-projection" and args.cmd == "run":
+            config = correlations.get_projection_config(args.version)
+            if config is None:
+                raise RuntimeError("correlation projection configuration not found")
+            if (
+                config.rule_manifest_sha256 != BUILTIN_CORRELATION_RULES.manifest_sha256()
+                or config.rule_manifest != BUILTIN_CORRELATION_RULES.manifest()
+            ):
+                raise RuntimeError(
+                    "stored correlation rule manifest does not match built-in registry"
+                )
+            handler = CorrelationProjectionHandler(
+                projection_version=args.version,
+                relationship_projection_version=config.relationship_projection_version,
+            )
+            out = ProjectionRunner(sf).run_batch(
+                handler.projector_identity,
+                handler,
+                limit=args.limit,
+                retry_failed=args.retry_failed,
+            )
+            print(json.dumps(_jsonable(out), sort_keys=True))
+            return 0 if str(out.outcome) in {"advanced", "caught_up"} else 1
         elif args.group == "relationship-projection" and args.cmd == "register":
             out = projections.register_projector(relationship_projector_identity(args.version))
         elif args.group == "relationship-projection" and args.cmd == "show":
