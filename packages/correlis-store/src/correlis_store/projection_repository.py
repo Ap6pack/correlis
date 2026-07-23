@@ -86,6 +86,11 @@ class ProjectionRepository:
             session.close()
 
     def register_projector(self, identity: ProjectorIdentity) -> ProjectorCheckpoint:
+        if identity.name == "correlation-projection":
+            raise RuntimeError(
+                "correlation-projection is reserved; use correlis-admin "
+                "correlation-projection register"
+            )
         with self._session_scope() as session:
             rec = session.get(
                 ProjectorCheckpointRecord,

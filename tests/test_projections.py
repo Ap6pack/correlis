@@ -273,3 +273,85 @@ def test_multiple_observations_limit_and_distinct_projectors(sf, clock):
     result = ProjectionRunner(sf, clock=clock).run_batch(ident(), handler)
     assert result.outcome == ProjectionRunOutcome.CAUGHT_UP
     assert seen == ["obs-1", "obs-2"]
+
+
+def test_correlation_rule_registry_contract():
+    from correlis_schema import RelationshipType
+    from correlis_store import (
+        BUILTIN_CORRELATION_RULES,
+        CorrelationRuleDefinition,
+        CorrelationRuleRegistry,
+    )
+
+    rules = BUILTIN_CORRELATION_RULES.definitions()
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule.rule_id == "COR-SEQ-001"
+    assert rule.rule_version == "1"
+    assert rule.output_relationship_type == RelationshipType.EXPLOITED
+    assert rule.confidence == 0.85
+    assert BUILTIN_CORRELATION_RULES.manifest() == BUILTIN_CORRELATION_RULES.manifest()
+    assert (
+        BUILTIN_CORRELATION_RULES.manifest_sha256() == BUILTIN_CORRELATION_RULES.manifest_sha256()
+    )
+    with pytest.raises(ValueError):
+        CorrelationRuleRegistry(name="x", version="1", definitions=(rule, rule))
+    with pytest.raises(ValueError):
+        CorrelationRuleRegistry(
+            name="x",
+            version="1",
+            definitions=(
+                rule,
+                CorrelationRuleDefinition(
+                    "COR-SEQ-002", "1", "x", "x", "x", RelationshipType.EXPLOITED, 0.1, 100
+                ),
+            ),
+        )
+    with pytest.raises(ValueError):
+        CorrelationRuleDefinition("x", "1", "x", "x", "x", RelationshipType.EXPLOITED, 1.1, 1)
+    with pytest.raises(ValueError):
+        CorrelationRuleDefinition("x", " ", "x", "x", "x", RelationshipType.EXPLOITED, 0.1, 1)
+
+
+def test_correlation_projection_registration(sf, clock):
+    from correlis_store import (
+        BUILTIN_CORRELATION_RULES,
+        CorrelationRepository,
+        ProjectorNotRegistered,
+        ProjectorStateConflict,
+        relationship_projector_identity,
+    )
+
+    repo = CorrelationRepository(sf, clock=clock)
+    with pytest.raises(ProjectorNotRegistered):
+        repo.register_projection(projection_version="1", relationship_projection_version="1")
+    ProjectionRepository(sf, clock=clock).register_projector(relationship_projector_identity("1"))
+    config = repo.register_projection(projection_version="1", relationship_projection_version="1")
+    cp = ProjectionRepository(sf).get_checkpoint(config.identity)
+    assert cp.last_processed_sequence == 0
+    assert config.rule_manifest == BUILTIN_CORRELATION_RULES.manifest()
+    assert config.rule_manifest_sha256 == BUILTIN_CORRELATION_RULES.manifest_sha256()
+    assert config.ontology_name
+    assert (
+        repo.register_projection(projection_version="1", relationship_projection_version="1")
+        == config
+    )
+    with sf.begin() as session:
+        rec = session.get(
+            __import__(
+                "correlis_store.models", fromlist=["ProjectorCheckpointRecord"]
+            ).ProjectorCheckpointRecord,
+            {"projector_name": "correlation-projection", "projector_version": "1"},
+        )
+        rec.last_processed_sequence = 7
+    repo.register_projection(projection_version="1", relationship_projection_version="1")
+    assert ProjectionRepository(sf).get_checkpoint(config.identity).last_processed_sequence == 7
+    ProjectionRepository(sf).register_projector(relationship_projector_identity("2"))
+    with pytest.raises(ProjectorStateConflict):
+        repo.register_projection(projection_version="1", relationship_projection_version="2")
+    with pytest.raises(ProjectorStateConflict):
+        repo.register_projection(projection_version="2", relationship_projection_version="1")
+    with pytest.raises(RuntimeError):
+        ProjectionRepository(sf).register_projector(
+            ProjectorIdentity("correlation-projection", "9")
+        )

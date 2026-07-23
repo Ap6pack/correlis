@@ -167,7 +167,7 @@ def test_alembic_revision_ids_fit_default_version_table():
     assert all(revision_id for revision_id in revision_ids)
     assert len(set(revision_ids)) == len(revision_ids)
     assert all(len(revision_id) <= 32 for revision_id in revision_ids)
-    assert script.get_current_head() == "0007_deterministic_relationships"
+    assert script.get_current_head() == "0008_correlation_config"
 
 
 def test_alembic_upgrade_and_downgrade_create_expected_tables(tmp_path, monkeypatch):

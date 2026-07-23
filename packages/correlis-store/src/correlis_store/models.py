@@ -136,6 +136,50 @@ class ProjectorCheckpointRecord(Base):
     )
 
 
+class CorrelationProjectionConfigRecord(Base):
+    __tablename__ = "correlation_projection_configs"
+
+    projector_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    relationship_projector_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    ruleset_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    ruleset_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_manifest_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False)
+    ontology_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    ontology_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "projector_name = 'correlation-projection'",
+            name="ck_correlation_projection_configs_projector_name",
+        ),
+        CheckConstraint(
+            "relationship_projector_name = 'relationship-projection'",
+            name="ck_correlation_projection_configs_relationship_projector",
+        ),
+        CheckConstraint(
+            "length(rule_manifest_sha256) = 64",
+            name="ck_correlation_projection_configs_manifest_hash",
+        ),
+        ForeignKeyConstraint(
+            ["projector_name", "projection_version"],
+            ["projector_checkpoints.projector_name", "projector_checkpoints.projector_version"],
+        ),
+        ForeignKeyConstraint(
+            ["relationship_projector_name", "relationship_projection_version"],
+            ["projector_checkpoints.projector_name", "projector_checkpoints.projector_version"],
+        ),
+        UniqueConstraint(
+            "relationship_projector_name",
+            "relationship_projection_version",
+            name="uq_correlation_projection_configs_relationship_graph",
+        ),
+    )
+
+
 class ProjectorFailureRecord(Base):
     __tablename__ = "projector_failures"
 

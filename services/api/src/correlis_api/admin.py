@@ -10,7 +10,10 @@ from enum import StrEnum
 
 from correlis_schema import EntityType, ProvenanceClass, RelationshipType
 from correlis_store import (
+    BUILTIN_CORRELATION_RULES,
+    CORRELATION_PROJECTOR_NAME,
     CollectorRepository,
+    CorrelationRepository,
     EntityProjectionHandler,
     EntityRepository,
     ProjectionRepository,
@@ -19,6 +22,7 @@ from correlis_store import (
     ProjectorIdentity,
     RelationshipProjectionHandler,
     RelationshipRepository,
+    correlation_projector_identity,
     create_database_engine,
     create_session_factory,
     entity_projector_identity,
@@ -100,6 +104,14 @@ def build_parser():
     x.add_argument("--version", required=True)
     x.add_argument("--status", choices=["active", "resolved", "all"], default="active")
     x.add_argument("--limit", type=int, default=100)
+    cp = sub.add_parser("correlation-projection").add_subparsers(dest="cmd", required=True)
+    x = cp.add_parser("register")
+    x.add_argument("--version", required=True)
+    x.add_argument("--relationship-projection-version", required=True)
+    x = cp.add_parser("show")
+    x.add_argument("--version", required=True)
+    x = cp.add_parser("rules")
+    x.add_argument("--version", required=True)
     rp = sub.add_parser("relationship-projection").add_subparsers(dest="cmd", required=True)
     x = rp.add_parser("register")
     x.add_argument("--version", required=True)
@@ -169,6 +181,7 @@ def main(argv=None) -> int:
         projections = ProjectionRepository(sf)
         entities = EntityRepository(sf)
         relationships = RelationshipRepository(sf)
+        correlations = CorrelationRepository(sf)
         if args.group == "collectors" and args.cmd == "create":
             out = r.create_collector(
                 tenant_id=args.tenant_id,
@@ -211,6 +224,11 @@ def main(argv=None) -> int:
                 tenant_id=args.tenant_id, collector_id=args.collector_id, limit=args.limit
             )
         elif args.group == "projectors" and args.cmd == "register":
+            if args.name == CORRELATION_PROJECTOR_NAME:
+                raise RuntimeError(
+                    "correlation-projection is reserved; use correlis-admin "
+                    "correlation-projection register"
+                )
             out = projections.register_projector(ProjectorIdentity(args.name, args.version))
         elif args.group == "projectors" and args.cmd == "list":
             out = projections.list_checkpoints(limit=args.limit)
@@ -227,6 +245,28 @@ def main(argv=None) -> int:
             out = projections.list_failures(
                 ProjectorIdentity(args.name, args.version), status=status, limit=args.limit
             )
+        elif args.group == "correlation-projection" and args.cmd == "register":
+            config = correlations.register_projection(
+                projection_version=args.version,
+                relationship_projection_version=args.relationship_projection_version,
+            )
+            checkpoint = projections.get_checkpoint(correlation_projector_identity(args.version))
+            out = {"config": config, "checkpoint": checkpoint}
+        elif args.group == "correlation-projection" and args.cmd == "show":
+            config = correlations.get_projection_config(args.version)
+            if config is None:
+                raise RuntimeError("correlation projection configuration not found")
+            checkpoint = projections.get_checkpoint(correlation_projector_identity(args.version))
+            out = {"config": config, "checkpoint": checkpoint}
+        elif args.group == "correlation-projection" and args.cmd == "rules":
+            config = correlations.get_projection_config(args.version)
+            if config is None:
+                raise RuntimeError("correlation projection configuration not found")
+            if config.rule_manifest_sha256 != BUILTIN_CORRELATION_RULES.manifest_sha256():
+                raise RuntimeError(
+                    "stored correlation rule manifest does not match built-in registry"
+                )
+            out = config.rule_manifest
         elif args.group == "relationship-projection" and args.cmd == "register":
             out = projections.register_projector(relationship_projector_identity(args.version))
         elif args.group == "relationship-projection" and args.cmd == "show":

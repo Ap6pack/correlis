@@ -13,12 +13,20 @@ from .projections import ProjectionHandlerError, ProjectionInvariantError, Proje
 
 RELATIONSHIP_PROJECTOR_NAME = "relationship-projection"
 DEFAULT_RELATIONSHIP_PROJECTOR_VERSION = "1"
+CORRELATION_PROJECTOR_NAME = "correlation-projection"
+DEFAULT_CORRELATION_PROJECTOR_VERSION = "1"
 
 
 def relationship_projector_identity(
     version: str = DEFAULT_RELATIONSHIP_PROJECTOR_VERSION,
 ) -> ProjectorIdentity:
     return ProjectorIdentity(RELATIONSHIP_PROJECTOR_NAME, version)
+
+
+def correlation_projector_identity(
+    version: str = DEFAULT_CORRELATION_PROJECTOR_VERSION,
+) -> ProjectorIdentity:
+    return ProjectorIdentity(CORRELATION_PROJECTOR_NAME, version)
 
 
 def _aware(dt: datetime) -> bool:
