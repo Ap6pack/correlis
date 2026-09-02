@@ -1,3 +1,21 @@
+from .attack_scene_policy import (
+    BUILTIN_ATTACK_SCENE_POLICY,
+    BUILTIN_ATTACK_SCENE_POLICY_CATALOG,
+    BUILTIN_ATTACK_SCENE_POLICY_NAME,
+    BUILTIN_ATTACK_SCENE_POLICY_VERSION,
+    AttackScenePolicyCatalog,
+    AttackScenePolicyDefinition,
+    AttackScenePolicyNotFound,
+    resolve_attack_scene_policy,
+)
+from .attack_scene_projection import (
+    ATTACK_SCENE_PROJECTOR_NAME,
+    DEFAULT_ATTACK_SCENE_PROJECTOR_VERSION,
+    AttackSceneProjectionConfig,
+    attack_scene_id,
+    attack_scene_projector_identity,
+)
+from .attack_scene_projection_repository import AttackSceneProjectionRepository
 from .attack_scene_repository import AttackSceneRepository
 from .attack_scenes import (
     AttackSceneEntityMembership,
@@ -144,6 +162,20 @@ from .relationships import (
 from .repository import ObservationRepository, WriteDisposition
 
 __all__ = [
+    "ATTACK_SCENE_PROJECTOR_NAME",
+    "DEFAULT_ATTACK_SCENE_PROJECTOR_VERSION",
+    "AttackSceneProjectionConfig",
+    "AttackSceneProjectionRepository",
+    "AttackScenePolicyCatalog",
+    "AttackScenePolicyDefinition",
+    "AttackScenePolicyNotFound",
+    "BUILTIN_ATTACK_SCENE_POLICY",
+    "BUILTIN_ATTACK_SCENE_POLICY_CATALOG",
+    "BUILTIN_ATTACK_SCENE_POLICY_NAME",
+    "BUILTIN_ATTACK_SCENE_POLICY_VERSION",
+    "attack_scene_id",
+    "attack_scene_projector_identity",
+    "resolve_attack_scene_policy",
     "AttackSceneEntityMembership",
     "AttackSceneLineage",
     "AttackSceneObservationMembership",

@@ -396,3 +396,17 @@ The evaluator remains side-effect free. Durable writes occur only when an operat
 ### Durable Attack Scene storage
 
 Attack Scene persistence is versioned and tenant-scoped. Scenes reference canonical projected entities and relationships without copying graph attributes, evidence, or derivation payloads; correlation remains the authoritative deterministic relationship engine. Observation membership is ordered by durable ingest sequence, while incident state changes have append-only transition lineage. This release provides storage and read contracts only: there is no automatic Attack Scene projector, and no AI determines scene truth or incident state. The existing `SceneBuilder` remains an in-memory demo/compatibility path.
+### Attack Scene projection configuration
+
+`attack-scene-projection` is a reserved, configured projector. Each version binds exact
+entity, relationship, and correlation projection versions to the immutable built-in
+`correlis-root-chain/1` policy. Policy v1 gives a scene the deterministic identity of
+its deterministic `COR-SEQ-001` `exploited` root. `COR-SEQ-002` compromise and
+`COR-SEQ-003` lateral-movement relationships join rooted scenes only through immutable
+derivation lineage; lineage may place one relationship in several roots without merging
+those scenes. Exploit establishes `observed`, compromise establishes `confirmed`, and
+lateral movement remains `confirmed`; `contained` and `closed` are never automatic.
+
+This release only registers and inspects configuration (`register`, `show`, `policy`).
+It has no Attack Scene projection execution or `run` command, creates no scene rows, and
+uses no AI for membership or incident-state truth.
