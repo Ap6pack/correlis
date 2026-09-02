@@ -179,8 +179,23 @@ CORRELATION_RULESET_V2 = CorrelationRuleRegistry(
 )
 
 
+CORRELATION_RULESET_V3 = CorrelationRuleRegistry(
+    name=BUILTIN_CORRELATION_RULESET_NAME,
+    version="3",
+    definitions=(
+        COR_SEQ_001,
+        COR_SEQ_002,
+        COR_SEQ_003,
+    ),
+)
+
+
 BUILTIN_CORRELATION_RULE_CATALOG = CorrelationRuleCatalog(
-    (BUILTIN_CORRELATION_RULES, CORRELATION_RULESET_V2)
+    (
+        BUILTIN_CORRELATION_RULES,
+        CORRELATION_RULESET_V2,
+        CORRELATION_RULESET_V3,
+    )
 )
 
 
