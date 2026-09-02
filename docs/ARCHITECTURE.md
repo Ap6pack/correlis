@@ -276,3 +276,17 @@ The evaluator is intentionally side-effect free and returns an immutable candida
 ## Durable Attack Scene read model
 
 The durable Attack Scene tables form a tenant- and projection-version-scoped operational read model over the persistent ontology graph. Membership rows reference entities, relationships, and observations rather than duplicating their payloads. Observation order uses durable ingest sequence, and actual incident-state changes are append-only lineage; new scenes simply begin in `potential`. Correlation remains the authoritative deterministic relationship engine, and neither AI nor an independent scene correlation implementation determines scene truth or incident state. No automatic Attack Scene projector exists yet. The API `SceneBuilder` remains an in-memory demo and compatibility path only.
+## Durable Attack Scene policy foundation
+
+The reserved `attack-scene-projection` configuration pins an entity graph, relationship
+graph, correlation projection, and exact immutable policy. The built-in policy is
+`correlis-root-chain/1`: deterministic `COR-SEQ-001` `exploited` relationships are the
+only automatic roots and supply deterministic root-based scene identities. Deterministic
+`COR-SEQ-002` and `COR-SEQ-003` relationships join via derivation-support lineage. A
+relationship may therefore belong to multiple rooted scenes, which are not automatically
+merged. Endpoint entities and durable relationship-observation lineage are the only
+eligible context.
+
+The policy advances `observed` on exploit and `confirmed` on compromise; lateral
+movement does not advance beyond `confirmed`, and `contained`/`closed` require future
+attributable actions. No executor exists yet, and AI has no membership or state role.

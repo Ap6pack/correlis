@@ -183,6 +183,68 @@ class CorrelationProjectionConfigRecord(Base):
     )
 
 
+class AttackSceneProjectionConfigRecord(Base):
+    __tablename__ = "attack_scene_projection_configs"
+    projector_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    entity_projector_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    entity_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    relationship_projector_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    correlation_projector_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    correlation_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_manifest_json: Mapped[dict[str, Any]] = mapped_column(json_type, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        CheckConstraint(
+            "projector_name = 'attack-scene-projection'", name="ck_attack_scene_configs_projector"
+        ),
+        CheckConstraint(
+            "entity_projector_name = 'entity-projection'",
+            name="ck_attack_scene_configs_entity_projector",
+        ),
+        CheckConstraint(
+            "relationship_projector_name = 'relationship-projection'",
+            name="ck_attack_scene_configs_relationship_projector",
+        ),
+        CheckConstraint(
+            "correlation_projector_name = 'correlation-projection'",
+            name="ck_attack_scene_configs_correlation_projector",
+        ),
+        CheckConstraint(
+            "length(policy_manifest_sha256) = 64", name="ck_attack_scene_configs_manifest_hash"
+        ),
+        CheckConstraint(
+            "length(trim(policy_name)) > 0", name="ck_attack_scene_configs_policy_name"
+        ),
+        CheckConstraint(
+            "length(trim(policy_version)) > 0", name="ck_attack_scene_configs_policy_version"
+        ),
+        ForeignKeyConstraint(
+            ["projector_name", "projection_version"],
+            ["projector_checkpoints.projector_name", "projector_checkpoints.projector_version"],
+        ),
+        ForeignKeyConstraint(
+            ["entity_projector_name", "entity_projection_version"],
+            ["projector_checkpoints.projector_name", "projector_checkpoints.projector_version"],
+        ),
+        ForeignKeyConstraint(
+            ["relationship_projector_name", "relationship_projection_version"],
+            ["projector_checkpoints.projector_name", "projector_checkpoints.projector_version"],
+        ),
+        ForeignKeyConstraint(
+            ["correlation_projector_name", "correlation_projection_version"],
+            [
+                "correlation_projection_configs.projector_name",
+                "correlation_projection_configs.projection_version",
+            ],
+        ),
+    )
+
+
 class ProjectorFailureRecord(Base):
     __tablename__ = "projector_failures"
 

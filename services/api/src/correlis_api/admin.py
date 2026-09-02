@@ -10,9 +10,13 @@ from enum import StrEnum
 
 from correlis_schema import EntityType, ProvenanceClass, RelationshipType
 from correlis_store import (
+    ATTACK_SCENE_PROJECTOR_NAME,
+    BUILTIN_ATTACK_SCENE_POLICY_NAME,
+    BUILTIN_ATTACK_SCENE_POLICY_VERSION,
     BUILTIN_CORRELATION_RULESET_NAME,
     BUILTIN_CORRELATION_RULESET_VERSION,
     CORRELATION_PROJECTOR_NAME,
+    AttackSceneProjectionRepository,
     CollectorRepository,
     CorrelationProjectionHandler,
     CorrelationRepository,
@@ -24,11 +28,13 @@ from correlis_store import (
     ProjectorIdentity,
     RelationshipProjectionHandler,
     RelationshipRepository,
+    attack_scene_projector_identity,
     correlation_projector_identity,
     create_database_engine,
     create_session_factory,
     entity_projector_identity,
     relationship_projector_identity,
+    resolve_attack_scene_policy,
     resolve_correlation_rule_registry,
 )
 
@@ -121,6 +127,17 @@ def build_parser():
     x.add_argument("--version", required=True)
     x.add_argument("--limit", type=int, default=100)
     x.add_argument("--retry-failed", action="store_true")
+    asp = sub.add_parser("attack-scene-projection").add_subparsers(dest="cmd", required=True)
+    x = asp.add_parser("register")
+    x.add_argument("--version", required=True)
+    x.add_argument("--entity-projection-version", required=True)
+    x.add_argument("--relationship-projection-version", required=True)
+    x.add_argument("--correlation-projection-version", required=True)
+    x.add_argument("--policy-name", default=BUILTIN_ATTACK_SCENE_POLICY_NAME)
+    x.add_argument("--policy-version", default=BUILTIN_ATTACK_SCENE_POLICY_VERSION)
+    for command in ("show", "policy"):
+        x = asp.add_parser(command)
+        x.add_argument("--version", required=True)
     rp = sub.add_parser("relationship-projection").add_subparsers(dest="cmd", required=True)
     x = rp.add_parser("register")
     x.add_argument("--version", required=True)
@@ -191,6 +208,7 @@ def main(argv=None) -> int:
         entities = EntityRepository(sf)
         relationships = RelationshipRepository(sf)
         correlations = CorrelationRepository(sf)
+        attack_scene_projections = AttackSceneProjectionRepository(sf)
         if args.group == "collectors" and args.cmd == "create":
             out = r.create_collector(
                 tenant_id=args.tenant_id,
@@ -238,6 +256,11 @@ def main(argv=None) -> int:
                     "correlation-projection is reserved; use correlis-admin "
                     "correlation-projection register"
                 )
+            if args.name == ATTACK_SCENE_PROJECTOR_NAME:
+                raise RuntimeError(
+                    "attack-scene-projection is reserved; use correlis-admin "
+                    "attack-scene-projection register"
+                )
             out = projections.register_projector(ProjectorIdentity(args.name, args.version))
         elif args.group == "projectors" and args.cmd == "list":
             out = projections.list_checkpoints(limit=args.limit)
@@ -263,6 +286,36 @@ def main(argv=None) -> int:
             )
             checkpoint = projections.get_checkpoint(correlation_projector_identity(args.version))
             out = {"config": config, "checkpoint": checkpoint}
+        elif args.group == "attack-scene-projection" and args.cmd == "register":
+            config = attack_scene_projections.register_projection(
+                projection_version=args.version,
+                entity_projection_version=args.entity_projection_version,
+                relationship_projection_version=args.relationship_projection_version,
+                correlation_projection_version=args.correlation_projection_version,
+                policy_name=args.policy_name,
+                policy_version=args.policy_version,
+            )
+            checkpoint = projections.get_checkpoint(attack_scene_projector_identity(args.version))
+            out = {"configuration": config, "checkpoint": checkpoint}
+        elif args.group == "attack-scene-projection" and args.cmd == "show":
+            config = attack_scene_projections.get_projection_config(args.version)
+            if config is None:
+                raise RuntimeError("attack scene projection configuration not found")
+            checkpoint = projections.get_checkpoint(attack_scene_projector_identity(args.version))
+            out = {"configuration": config, "checkpoint": checkpoint}
+        elif args.group == "attack-scene-projection" and args.cmd == "policy":
+            config = attack_scene_projections.get_projection_config(args.version)
+            if config is None:
+                raise RuntimeError("attack scene projection configuration not found")
+            policy = resolve_attack_scene_policy(config.policy_name, config.policy_version)
+            if (
+                config.policy_manifest_sha256 != policy.manifest_sha256()
+                or config.policy_manifest != policy.manifest
+            ):
+                raise RuntimeError(
+                    "stored attack scene policy manifest does not match built-in catalog"
+                )
+            out = config.policy_manifest
         elif args.group == "correlation-projection" and args.cmd == "show":
             config = correlations.get_projection_config(args.version)
             if config is None:
