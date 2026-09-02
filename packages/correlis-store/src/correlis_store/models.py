@@ -30,6 +30,9 @@ class Base(DeclarativeBase):
     pass
 
 
+_INCIDENT_STATES = "'potential', 'observed', 'confirmed', 'contained', 'closed'"
+
+
 class ObservationRecord(Base):
     __tablename__ = "observations"
 
@@ -903,4 +906,246 @@ class RelationshipDerivationEvidenceRecord(Base):
             "evidence_role IN ('trigger', 'support')",
             name="ck_relationship_derivation_evidence_role",
         ),
+    )
+
+
+class AttackSceneRecord(Base):
+    __tablename__ = "attack_scenes"
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    scene_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    entity_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uncertainty_json: Mapped[list[str]] = mapped_column(json_type, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        *(
+            CheckConstraint(f"length(trim({c})) > 0", name=f"ck_attack_scenes_{c}_nonblank")
+            for c in (
+                "projection_version",
+                "tenant_id",
+                "scene_id",
+                "entity_projection_version",
+                "relationship_projection_version",
+                "title",
+            )
+        ),
+        CheckConstraint(f"state IN ({_INCIDENT_STATES})", name="ck_attack_scenes_state"),
+        CheckConstraint("first_ingest_sequence >= 1", name="ck_attack_scenes_first_sequence"),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence", name="ck_attack_scenes_sequence_order"
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_attack_scenes_seen_order"),
+        CheckConstraint(
+            "CAST(uncertainty_json AS TEXT) LIKE '[%]'", name="ck_attack_scenes_uncertainty_array"
+        ),
+        Index("ix_attack_scenes_state", "projection_version", "tenant_id", "state", "scene_id"),
+        Index("ix_attack_scenes_last_seen", "projection_version", "tenant_id", "last_seen"),
+        Index(
+            "ix_attack_scenes_last_sequence",
+            "projection_version",
+            "tenant_id",
+            "last_ingest_sequence",
+        ),
+        Index(
+            "ix_attack_scenes_relationship_graph", "relationship_projection_version", "tenant_id"
+        ),
+    )
+
+
+class _AttackSceneMembership:
+    projection_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    scene_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+
+
+class AttackSceneEntityRecord(_AttackSceneMembership, Base):
+    __tablename__ = "attack_scene_entities"
+    entity_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "scene_id"],
+            [
+                "attack_scenes.projection_version",
+                "attack_scenes.tenant_id",
+                "attack_scenes.scene_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["entity_projection_version", "tenant_id", "entity_id"],
+            ["entities.projection_version", "entities.tenant_id", "entities.entity_id"],
+        ),
+        CheckConstraint(
+            "first_ingest_sequence >= 1", name="ck_attack_scene_entities_first_sequence"
+        ),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence",
+            name="ck_attack_scene_entities_sequence_order",
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_attack_scene_entities_seen_order"),
+        Index("ix_attack_scene_entities_scene", "projection_version", "tenant_id", "scene_id"),
+        Index(
+            "ix_attack_scene_entities_canonical",
+            "entity_projection_version",
+            "tenant_id",
+            "entity_id",
+        ),
+        Index("ix_attack_scene_entities_lookup", "projection_version", "tenant_id", "entity_id"),
+    )
+
+
+class AttackSceneRelationshipRecord(_AttackSceneMembership, Base):
+    __tablename__ = "attack_scene_relationships"
+    relationship_projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    relationship_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_ingest_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "scene_id"],
+            [
+                "attack_scenes.projection_version",
+                "attack_scenes.tenant_id",
+                "attack_scenes.scene_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["relationship_projection_version", "tenant_id", "relationship_id"],
+            [
+                "relationships.projection_version",
+                "relationships.tenant_id",
+                "relationships.relationship_id",
+            ],
+        ),
+        CheckConstraint(
+            "first_ingest_sequence >= 1", name="ck_attack_scene_relationships_first_sequence"
+        ),
+        CheckConstraint(
+            "last_ingest_sequence >= first_ingest_sequence",
+            name="ck_attack_scene_relationships_sequence_order",
+        ),
+        CheckConstraint("first_seen <= last_seen", name="ck_attack_scene_relationships_seen_order"),
+        Index("ix_attack_scene_relationships_scene", "projection_version", "tenant_id", "scene_id"),
+        Index(
+            "ix_attack_scene_relationships_canonical",
+            "relationship_projection_version",
+            "tenant_id",
+            "relationship_id",
+        ),
+        Index(
+            "ix_attack_scene_relationships_lookup",
+            "projection_version",
+            "tenant_id",
+            "relationship_id",
+        ),
+    )
+
+
+class AttackSceneObservationRecord(_AttackSceneMembership, Base):
+    __tablename__ = "attack_scene_observations"
+    observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    ingest_sequence: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("observation_ingest_entries.ingest_sequence"), nullable=False
+    )
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "scene_id"],
+            [
+                "attack_scenes.projection_version",
+                "attack_scenes.tenant_id",
+                "attack_scenes.scene_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        Index(
+            "ix_attack_scene_observations_order",
+            "projection_version",
+            "tenant_id",
+            "scene_id",
+            "ingest_sequence",
+        ),
+        Index(
+            "ix_attack_scene_observations_lookup",
+            "projection_version",
+            "tenant_id",
+            "observation_id",
+        ),
+        Index("ix_attack_scene_observations_sequence", "ingest_sequence"),
+    )
+
+
+class AttackSceneStateTransitionRecord(_AttackSceneMembership, Base):
+    __tablename__ = "attack_scene_state_transitions"
+    ingest_sequence: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("observation_ingest_entries.ingest_sequence"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    trigger_observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    from_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    to_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["projection_version", "tenant_id", "scene_id"],
+            [
+                "attack_scenes.projection_version",
+                "attack_scenes.tenant_id",
+                "attack_scenes.scene_id",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "trigger_observation_id"],
+            ["observations.tenant_id", "observations.observation_id"],
+        ),
+        CheckConstraint("ingest_sequence >= 1", name="ck_attack_scene_transitions_sequence"),
+        CheckConstraint(
+            f"from_state IN ({_INCIDENT_STATES})", name="ck_attack_scene_transitions_from_state"
+        ),
+        CheckConstraint(
+            f"to_state IN ({_INCIDENT_STATES})", name="ck_attack_scene_transitions_to_state"
+        ),
+        CheckConstraint("from_state <> to_state", name="ck_attack_scene_transitions_state_change"),
+        CheckConstraint("length(trim(reason_code)) > 0", name="ck_attack_scene_transitions_reason"),
+        Index(
+            "ix_attack_scene_transitions_order",
+            "projection_version",
+            "tenant_id",
+            "scene_id",
+            "ingest_sequence",
+        ),
+        Index(
+            "ix_attack_scene_transitions_state",
+            "projection_version",
+            "tenant_id",
+            "to_state",
+            "ingest_sequence",
+        ),
+        Index("ix_attack_scene_transitions_trigger", "tenant_id", "trigger_observation_id"),
     )

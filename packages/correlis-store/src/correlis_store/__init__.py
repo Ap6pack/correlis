@@ -1,3 +1,12 @@
+from .attack_scene_repository import AttackSceneRepository
+from .attack_scenes import (
+    AttackSceneEntityMembership,
+    AttackSceneLineage,
+    AttackSceneObservationMembership,
+    AttackSceneRelationshipMembership,
+    AttackSceneStateTransition,
+    ProjectedAttackScene,
+)
 from .collector_auth import CollectorAuthenticator, is_collector_principal_active
 from .collector_repository import (
     CollectorAlreadyExists,
@@ -135,6 +144,13 @@ from .relationships import (
 from .repository import ObservationRepository, WriteDisposition
 
 __all__ = [
+    "AttackSceneEntityMembership",
+    "AttackSceneLineage",
+    "AttackSceneObservationMembership",
+    "AttackSceneRelationshipMembership",
+    "AttackSceneRepository",
+    "AttackSceneStateTransition",
+    "ProjectedAttackScene",
     "EntityEvidenceLineage",
     "EntityIdentityClaim",
     "EntityLineage",

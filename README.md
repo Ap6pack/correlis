@@ -392,3 +392,7 @@ The correlation projection handler writes this lineage for every configured dete
 `correlis-store` includes a pure `COR-SEQ-003` evaluator for authentication from a previously compromised source entity to another entity. The evaluator derives a `moved_laterally_to` candidate only when historical `compromised` support existed before the authentication trigger, using durable ingest sequence lineage rather than event time.
 
 The evaluator remains side-effect free. Durable writes occur only when an operator explicitly configures a separate correlation projection and relationship graph for `correlis-sequence/3`. Versions 1 and 2 remain immutable and continue executing exactly their original rules.
+
+### Durable Attack Scene storage
+
+Attack Scene persistence is versioned and tenant-scoped. Scenes reference canonical projected entities and relationships without copying graph attributes, evidence, or derivation payloads; correlation remains the authoritative deterministic relationship engine. Observation membership is ordered by durable ingest sequence, while incident state changes have append-only transition lineage. This release provides storage and read contracts only: there is no automatic Attack Scene projector, and no AI determines scene truth or incident state. The existing `SceneBuilder` remains an in-memory demo/compatibility path.
