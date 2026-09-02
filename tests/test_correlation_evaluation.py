@@ -68,6 +68,11 @@ def reset_postgres_store(connection) -> None:
     connection.execute(
         text("""
             TRUNCATE TABLE
+                attack_scene_state_transitions,
+                attack_scene_observations,
+                attack_scene_relationships,
+                attack_scene_entities,
+                attack_scenes,
                 relationship_derivation_evidence,
                 relationship_derivation_supports,
                 relationship_derivations,
