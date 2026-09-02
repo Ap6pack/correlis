@@ -246,6 +246,41 @@ def test_correlation_projection_cli_paths(tmp_path, monkeypatch, capsys):
     assert "correlation-projection register" in capsys.readouterr().err
 
 
+def test_correlation_projection_version_three_registration_and_rules(
+    tmp_path, monkeypatch, capsys
+):
+    handle, sf = make_resources(tmp_path, monkeypatch)
+    assert admin.main(["relationship-projection", "register", "--version", "3"]) == 0
+    capsys.readouterr()
+    assert (
+        admin.main(
+            [
+                "correlation-projection",
+                "register",
+                "--version",
+                "3",
+                "--relationship-projection-version",
+                "3",
+                "--ruleset-name",
+                "correlis-sequence",
+                "--ruleset-version",
+                "3",
+            ]
+        )
+        == 0
+    )
+    registered = json.loads(capsys.readouterr().out)
+    assert registered["config"]["ruleset_version"] == "3"
+    assert admin.main(["correlation-projection", "rules", "--version", "3"]) == 0
+    rules = json.loads(capsys.readouterr().out)["rules"]
+    assert [rule["rule_id"] for rule in rules] == [
+        "COR-SEQ-001",
+        "COR-SEQ-002",
+        "COR-SEQ-003",
+    ]
+    assert handle.disposed is True
+
+
 def test_correlation_projection_run_cli_uses_stored_graph_and_exit_codes(
     tmp_path, monkeypatch, capsys
 ):

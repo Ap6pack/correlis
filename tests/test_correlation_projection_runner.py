@@ -400,6 +400,92 @@ def test_version_two_projection_persists_exploit_to_compromise_chain_idempotentl
         assert cp.last_processed_sequence == auth_seq
 
 
+def test_version_three_projection_persists_complete_chain_and_lineage_idempotently(sf):
+    register_versions(sf, "3", "3", "3")
+    put(sf, vuln_obs())
+    put(sf, exploit_obs())
+    put(sf, proc_obs())
+    auth_seq = put(sf, auth_obs())
+    run_relationship(sf, version="3")
+    out = run_correlation(sf, version="3", rel_version="3", ruleset_version="3")
+    assert out.ending_sequence == auth_seq
+
+    exploited = relationship_id(
+        "tenant-a", "asset-1", RelationshipType.EXPLOITED, "asset-1",
+        ProvenanceClass.DETERMINISTIC, "COR-SEQ-001",
+    )
+    compromised = relationship_id(
+        "tenant-a", "asset-1", RelationshipType.COMPROMISED, "asset-1",
+        ProvenanceClass.DETERMINISTIC, "COR-SEQ-002",
+    )
+    lateral = relationship_id(
+        "tenant-a", "asset-1", RelationshipType.MOVED_LATERALLY_TO, "asset-2",
+        ProvenanceClass.DETERMINISTIC, "COR-SEQ-003",
+    )
+    run_correlation(sf, version="3", rel_version="3", ruleset_version="3")
+
+    with sf() as s:
+        rels = {
+            r.relationship_id: r
+            for r in s.scalars(
+                select(RelationshipRecord).where(
+                    RelationshipRecord.projection_version == "3",
+                    RelationshipRecord.provenance == ProvenanceClass.DETERMINISTIC.value,
+                )
+            )
+        }
+        assert [(rels[rid].rule_id, rels[rid].rule_version, rels[rid].confidence) for rid in (
+            exploited, compromised, lateral
+        )] == [
+            ("COR-SEQ-001", "1", 0.85),
+            ("COR-SEQ-002", "1", 0.92),
+            ("COR-SEQ-003", "1", 0.90),
+        ]
+        assert rels[lateral].relationship_type == RelationshipType.MOVED_LATERALLY_TO.value
+        derivation = s.get(
+            RelationshipDerivationRecord,
+            {
+                "relationship_projection_version": "3",
+                "tenant_id": "tenant-a",
+                "relationship_id": lateral,
+                "trigger_observation_id": "auth",
+            },
+        )
+        assert derivation.reason_code == "compromised_source_authentication"
+        assert s.get(
+            RelationshipDerivationSupportRecord,
+            {
+                "relationship_projection_version": "3",
+                "tenant_id": "tenant-a",
+                "relationship_id": lateral,
+                "trigger_observation_id": "auth",
+                "support_relationship_id": compromised,
+            },
+        ) is not None
+        assert set(s.execute(
+            select(
+                RelationshipDerivationEvidenceRecord.evidence_id,
+                RelationshipDerivationEvidenceRecord.evidence_role,
+            ).where(RelationshipDerivationEvidenceRecord.relationship_id == lateral)
+        ).all()) == {("ev-auth", "trigger"), ("ev-proc", "support")}
+        assert (
+            s.scalar(
+                select(func.count()).select_from(RelationshipDerivationRecord).where(
+                    RelationshipDerivationRecord.relationship_projection_version == "3"
+                )
+            )
+            == 3
+        )
+        assert (
+            s.scalar(
+                select(func.count()).select_from(RelationshipDerivationEvidenceRecord).where(
+                    RelationshipDerivationEvidenceRecord.relationship_projection_version == "3"
+                )
+            )
+            == 6
+        )
+
+
 def test_version_one_and_two_graph_state_are_isolated(sf):
     register(sf)
     register_versions(sf, "2", "2", "2")
