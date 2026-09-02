@@ -129,6 +129,7 @@ def reset_observation_store(connection) -> None:
         text(
             """
             TRUNCATE TABLE
+                attack_scene_projection_configs,
                 attack_scene_state_transitions,
                 attack_scene_observations,
                 attack_scene_relationships,
@@ -169,6 +170,7 @@ def reset_observation_store(connection) -> None:
     counts_by_table = {
         table: connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
         for table in (
+            "attack_scene_projection_configs",
             "attack_scene_state_transitions",
             "attack_scene_observations",
             "attack_scene_relationships",
@@ -195,6 +197,7 @@ def reset_observation_store(connection) -> None:
         )
     }
     assert counts_by_table == {
+        "attack_scene_projection_configs": 0,
         "attack_scene_state_transitions": 0,
         "attack_scene_observations": 0,
         "attack_scene_relationships": 0,
