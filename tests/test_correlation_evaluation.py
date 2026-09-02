@@ -679,6 +679,8 @@ def test_registry_dispatch_evaluates_only_configured_rules_and_orders_candidates
     exploit_item = trigger(sf, "dispatch-exploit")
     add_manual_exploit(sf, "dispatch-support", attacker="1.2.3.4", target="asset-1")
     proc_item = put(sf, proc_obs("dispatch-proc"))
+    add_manual_compromise(sf, "dispatch-compromise")
+    auth_item = put(sf, auth_obs("dispatch-auth"))
     with sf() as s:
         graph = CorrelationGraphReader(s)
         assert [
@@ -708,6 +710,24 @@ def test_registry_dispatch_evaluates_only_configured_rules_and_orders_candidates
                 rule_registry=resolve_correlation_rule_registry("correlis-sequence", "2"),
             )
         ] == ["COR-SEQ-002"]
+        assert [
+            c.rule_id
+            for c in evaluate_correlation_rules(
+                graph,
+                auth_item,
+                relationship_projection_version="1",
+                rule_registry=resolve_correlation_rule_registry("correlis-sequence", "2"),
+            )
+        ] == []
+        assert [
+            c.rule_id
+            for c in evaluate_correlation_rules(
+                graph,
+                auth_item,
+                relationship_projection_version="1",
+                rule_registry=resolve_correlation_rule_registry("correlis-sequence", "3"),
+            )
+        ] == ["COR-SEQ-003"]
 
 
 def test_registry_dispatch_rejects_unsupported_rule_id(sf):

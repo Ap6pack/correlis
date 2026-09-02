@@ -400,6 +400,7 @@ def evaluate_cor_seq_002(
 _BUILTIN_EVALUATORS = {
     "COR-SEQ-001": evaluate_cor_seq_001,
     "COR-SEQ-002": evaluate_cor_seq_002,
+    "COR-SEQ-003": evaluate_cor_seq_003,
 }
 
 

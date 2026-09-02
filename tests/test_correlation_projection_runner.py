@@ -400,16 +400,96 @@ def test_version_two_projection_persists_exploit_to_compromise_chain_idempotentl
         assert cp.last_processed_sequence == auth_seq
 
 
-def test_version_one_and_two_graph_state_are_isolated(sf):
-    register(sf)
-    register_versions(sf, "2", "2", "2")
+def test_version_three_projection_persists_lateral_movement_chain_idempotently(sf):
+    register_versions(sf, "3", "3", "3")
     put(sf, vuln_obs())
     put(sf, exploit_obs())
     put(sf, proc_obs())
+    auth_seq = put(sf, auth_obs())
+    run_relationship(sf, version="3")
+    out = run_correlation(sf, version="3", rel_version="3", ruleset_version="3")
+    assert out.ending_sequence == auth_seq
+    compromised = relationship_id(
+        "tenant-a",
+        "asset-1",
+        RelationshipType.COMPROMISED,
+        "asset-1",
+        ProvenanceClass.DETERMINISTIC,
+        "COR-SEQ-002",
+    )
+    moved_laterally = relationship_id(
+        "tenant-a",
+        "asset-1",
+        RelationshipType.MOVED_LATERALLY_TO,
+        "asset-2",
+        ProvenanceClass.DETERMINISTIC,
+        "COR-SEQ-003",
+    )
+    run_correlation(sf, version="3", rel_version="3", ruleset_version="3")
+    with sf() as s:
+        rel = s.get(
+            RelationshipRecord,
+            {
+                "projection_version": "3",
+                "tenant_id": "tenant-a",
+                "relationship_id": moved_laterally,
+            },
+        )
+        assert rel.relationship_type == RelationshipType.MOVED_LATERALLY_TO.value
+        assert rel.rule_id == "COR-SEQ-003"
+        assert rel.rule_version == "1"
+        assert rel.confidence == 0.90
+        assert rel.source_entity_id == "asset-1"
+        assert rel.target_entity_id == "asset-2"
+        support = s.get(
+            RelationshipDerivationSupportRecord,
+            {
+                "relationship_projection_version": "3",
+                "tenant_id": "tenant-a",
+                "relationship_id": moved_laterally,
+                "trigger_observation_id": "auth",
+                "support_relationship_id": compromised,
+            },
+        )
+        assert support is not None
+        roles = set(
+            s.execute(
+                select(
+                    RelationshipDerivationEvidenceRecord.evidence_id,
+                    RelationshipDerivationEvidenceRecord.evidence_role,
+                ).where(RelationshipDerivationEvidenceRecord.relationship_id == moved_laterally)
+            ).all()
+        )
+        assert roles == {("ev-auth", "trigger"), ("ev-proc", "support")}
+        assert (
+            s.scalar(
+                select(func.count())
+                .select_from(RelationshipDerivationRecord)
+                .where(RelationshipDerivationRecord.relationship_projection_version == "3")
+            )
+            == 3
+        )
+        cp = s.get(
+            ProjectorCheckpointRecord,
+            {"projector_name": "correlation-projection", "projector_version": "3"},
+        )
+        assert cp.last_processed_sequence == auth_seq
+
+
+def test_version_one_two_and_three_graph_state_are_isolated(sf):
+    register(sf)
+    register_versions(sf, "2", "2", "2")
+    register_versions(sf, "3", "3", "3")
+    put(sf, vuln_obs())
+    put(sf, exploit_obs())
+    put(sf, proc_obs())
+    put(sf, auth_obs())
     run_relationship(sf, version="1")
     run_relationship(sf, version="2")
+    run_relationship(sf, version="3")
     run_correlation(sf)
     run_correlation(sf, version="2", rel_version="2", ruleset_version="2")
+    run_correlation(sf, version="3", rel_version="3", ruleset_version="3")
     with sf() as s:
         v1_rules = set(
             s.scalars(
@@ -427,8 +507,17 @@ def test_version_one_and_two_graph_state_are_isolated(sf):
                 )
             ).all()
         )
+        v3_rules = set(
+            s.scalars(
+                select(RelationshipRecord.rule_id).where(
+                    RelationshipRecord.projection_version == "3",
+                    RelationshipRecord.provenance == "deterministic",
+                )
+            ).all()
+        )
     assert v1_rules == {"COR-SEQ-001"}
     assert v2_rules == {"COR-SEQ-001", "COR-SEQ-002"}
+    assert v3_rules == {"COR-SEQ-001", "COR-SEQ-002", "COR-SEQ-003"}
 
 
 def test_correlation_projection_rolls_back_all_candidates_and_checkpoint_on_second_failure(
