@@ -395,7 +395,15 @@ The evaluator remains side-effect free. Durable writes occur only when an operat
 
 ### Durable Attack Scene storage
 
-Attack Scene persistence is versioned and tenant-scoped. Scenes reference canonical projected entities and relationships without copying graph attributes, evidence, or derivation payloads; correlation remains the authoritative deterministic relationship engine. Observation membership is ordered by durable ingest sequence, while incident state changes have append-only transition lineage. This release provides storage and read contracts only: there is no automatic Attack Scene projector, and no AI determines scene truth or incident state. The existing `SceneBuilder` remains an in-memory demo/compatibility path.
+Attack Scene persistence is versioned and tenant-scoped. The operator-controlled projector consumes the read-only, sequence-bounded membership planner and writes scenes, graph membership, observation lineage, and automatic state transitions atomically with checkpoint advancement. Deterministic `COR-SEQ-001` relationships are separate roots whose immutable support lineage supplies vulnerability context; shared descendants can belong to multiple rooted scenes without merging them. `COR-SEQ-002` advances a scene to `confirmed`, while `COR-SEQ-003` extends its graph without another automatic transition. Automatic projection never produces or regresses `contained` or `closed`, and preserves existing operator-facing title, summary, and uncertainty. No public HTTP Attack Scene API exists, and no AI or heuristic clustering determines scene truth. The existing `SceneBuilder` remains an in-memory demo/compatibility path.
+
+Execute one bounded batch explicitly:
+
+```bash
+correlis-admin attack-scene-projection run \
+  --version 1 \
+  --limit 100
+```
 ### Attack Scene projection configuration
 
 `attack-scene-projection` is a reserved, configured projector. Each version binds exact
@@ -407,9 +415,7 @@ derivation lineage; lineage may place one relationship in several roots without 
 those scenes. Exploit establishes `observed`, compromise establishes `confirmed`, and
 lateral movement remains `confirmed`; `contained` and `closed` are never automatic.
 
-This release only registers and inspects configuration (`register`, `show`, `policy`).
-It has no Attack Scene projection execution or `run` command, creates no scene rows, and
-uses no AI for membership or incident-state truth.
+The `run` command executes one bounded batch using only stored component versions and policy configuration; it never starts upstream projectors automatically.
 
 ### Read-only Attack Scene membership planning
 

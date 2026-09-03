@@ -275,7 +275,7 @@ The evaluator is intentionally side-effect free and returns an immutable candida
 
 ## Durable Attack Scene read model
 
-The durable Attack Scene tables form a tenant- and projection-version-scoped operational read model over the persistent ontology graph. Membership rows reference entities, relationships, and observations rather than duplicating their payloads. Observation order uses durable ingest sequence, and actual incident-state changes are append-only lineage; new scenes simply begin in `potential`. Correlation remains the authoritative deterministic relationship engine, and neither AI nor an independent scene correlation implementation determines scene truth or incident state. No automatic Attack Scene projector exists yet. The API `SceneBuilder` remains an in-memory demo and compatibility path only.
+The durable Attack Scene tables form a tenant- and projection-version-scoped operational read model over the persistent ontology graph. The operator-controlled projector persists the read-only, sequence-bounded planner output in the same transaction as checkpoint advancement. `COR-SEQ-001` deterministically roots separate scenes and immutable root support supplies vulnerability context. `COR-SEQ-002` advances state to `confirmed`; `COR-SEQ-003` extends membership without another automatic transition. Shared descendants can occur in multiple scenes without merging roots. Existing operator title, summary, and uncertainty are preserved, and `contained`/`closed` are neither automatically produced nor regressed. Run one bounded batch with `correlis-admin attack-scene-projection run --version 1 --limit 100`. There is no public HTTP Attack Scene API; neither `SceneBuilder`, AI, heuristic clustering, nor independent relationship discovery participates in durable scene truth.
 ## Durable Attack Scene policy foundation
 
 The reserved `attack-scene-projection` configuration pins an entity graph, relationship
@@ -289,7 +289,7 @@ eligible context.
 
 The policy advances `observed` on exploit and `confirmed` on compromise; lateral
 movement does not advance beyond `confirmed`, and `contained`/`closed` require future
-attributable actions. No executor exists yet, and AI has no membership or state role.
+attributable actions. Execution remains operator-controlled through the CLI, and AI has no membership or state role.
 
 ## Read-only Attack Scene membership planning
 
