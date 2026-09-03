@@ -290,3 +290,14 @@ eligible context.
 The policy advances `observed` on exploit and `confirmed` on compromise; lateral
 movement does not advance beyond `confirmed`, and `contained`/`closed` require future
 attributable actions. No executor exists yet, and AI has no membership or state role.
+
+## Read-only Attack Scene membership planning
+
+The store reconstructs historical Attack Scene plans through a requested durable ingest
+sequence from the persistent correlation graph. `COR-SEQ-001` is the root, its derivation
+supports are direct context, and recognized `COR-SEQ-002`/`COR-SEQ-003` descendants follow
+reverse immutable support lineage. A shared descendant can occur in multiple independently
+rooted scenes; roots are never implicitly merged. Endpoint entities and bounded
+relationship-observation lineage define membership, and automatic state progression is only
+observed to confirmed. The planner persists nothing and uses no AI, inferred edges, heuristic
+clustering, or event-time windows.

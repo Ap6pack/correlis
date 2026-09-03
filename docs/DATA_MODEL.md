@@ -282,3 +282,12 @@ membership in multiple unmerged roots. Exploit means `observed`, compromise mean
 `confirmed`, lateral movement remains `confirmed`, and no automatic transition reaches
 `contained` or `closed`. Configuration does not execute projection or create scene rows,
 and no AI determines membership or state.
+
+## Read-only Attack Scene plans
+
+Attack Scene plans are immutable read models bounded by durable ingest sequence. A plan
+contains relationship membership and bounded spans, endpoint entity membership, deduplicated
+relationship-observation lineage, and deterministic observed/confirmed transitions. Roots
+are `COR-SEQ-001` derivations; direct root supports add context and `COR-SEQ-002` and
+`COR-SEQ-003` join through immutable support edges. Shared descendants do not merge root
+scenes. Planning reads existing durable rows only and does not yet write Attack Scene rows.
