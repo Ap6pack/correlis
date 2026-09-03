@@ -1,3 +1,13 @@
+from .attack_scene_planner import (
+    AttackSceneDependencyNotReady,
+    AttackSceneMembershipPlanner,
+    AttackScenePlan,
+    AttackScenePlanningInvariantError,
+    PlannedAttackSceneEntity,
+    PlannedAttackSceneObservation,
+    PlannedAttackSceneRelationship,
+    PlannedAttackSceneStateTransition,
+)
 from .attack_scene_policy import (
     BUILTIN_ATTACK_SCENE_POLICY,
     BUILTIN_ATTACK_SCENE_POLICY_CATALOG,
@@ -165,6 +175,14 @@ __all__ = [
     "ATTACK_SCENE_PROJECTOR_NAME",
     "DEFAULT_ATTACK_SCENE_PROJECTOR_VERSION",
     "AttackSceneProjectionConfig",
+    "AttackSceneDependencyNotReady",
+    "AttackSceneMembershipPlanner",
+    "AttackScenePlan",
+    "AttackScenePlanningInvariantError",
+    "PlannedAttackSceneEntity",
+    "PlannedAttackSceneObservation",
+    "PlannedAttackSceneRelationship",
+    "PlannedAttackSceneStateTransition",
     "AttackSceneProjectionRepository",
     "AttackScenePolicyCatalog",
     "AttackScenePolicyDefinition",

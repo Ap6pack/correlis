@@ -410,3 +410,14 @@ lateral movement remains `confirmed`; `contained` and `closed` are never automat
 This release only registers and inspects configuration (`register`, `show`, `policy`).
 It has no Attack Scene projection execution or `run` command, creates no scene rows, and
 uses no AI for membership or incident-state truth.
+
+### Read-only Attack Scene membership planning
+
+Attack Scene membership can be planned as a read-only snapshot bounded by durable ingest
+sequence. Under `correlis-root-chain/1`, deterministic `COR-SEQ-001` relationships are
+independent roots; direct derivation supports provide context, while `COR-SEQ-002` and
+`COR-SEQ-003` descendants join only through immutable derivation-support lineage. Shared
+descendants may belong to multiple scenes without merging roots. Entities come only from
+member endpoints and observations only from relationship-observation lineage. State advances
+deterministically from observed to confirmed. Planning writes no scene rows and uses no AI,
+heuristic clustering, or event-time windows.
