@@ -25,6 +25,10 @@ from .attack_scene_projection import (
     attack_scene_id,
     attack_scene_projector_identity,
 )
+from .attack_scene_projection_handler import (
+    AttackSceneProjectionHandler,
+    AttackSceneProjectionInvariantError,
+)
 from .attack_scene_projection_repository import AttackSceneProjectionRepository
 from .attack_scene_repository import AttackSceneRepository
 from .attack_scenes import (
@@ -184,6 +188,8 @@ __all__ = [
     "PlannedAttackSceneRelationship",
     "PlannedAttackSceneStateTransition",
     "AttackSceneProjectionRepository",
+    "AttackSceneProjectionHandler",
+    "AttackSceneProjectionInvariantError",
     "AttackScenePolicyCatalog",
     "AttackScenePolicyDefinition",
     "AttackScenePolicyNotFound",

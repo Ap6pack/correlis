@@ -268,7 +268,7 @@ Relationship lineage reads now include immutable derivation, support, and eviden
 
 ### Durable Attack Scene storage
 
-`attack_scenes` stores current, versioned, tenant-scoped aggregate state. Its entity and relationship membership tables hold foreign-key references to the canonical projected graph and intentionally contain no copied attributes, evidence, endpoints, rule data, or derivation lineage. Observation membership is ordered by `(ingest_sequence, observation_id)`; event time records source chronology but is not a processing cursor. `attack_scene_state_transitions` is append-only and records actual state changes only. There is no automatic scene projector, grouping heuristic, or AI truth/state decision. The in-memory `SceneBuilder` remains a demo/compatibility representation, while durable correlation remains authoritative.
+`attack_scenes` stores current, versioned, tenant-scoped aggregate state. Its entity and relationship membership tables hold foreign-key references to the canonical projected graph and intentionally contain no copied attributes, evidence, endpoints, rule data, or derivation lineage. Observation membership is ordered by `(ingest_sequence, observation_id)`; event time records source chronology but is not a processing cursor. `attack_scene_state_transitions` is append-only and records actual state changes only. The operator-controlled scene projector persists planner output atomically with checkpoint advancement; there is no grouping heuristic or AI truth/state decision. The in-memory `SceneBuilder` remains a demo/compatibility representation, while durable correlation remains authoritative.
 ## Attack Scene projection configuration
 
 `attack_scene_projection_configs` is an immutable per-projector-version binding to exact
@@ -280,8 +280,7 @@ Policy v1 roots IDs in deterministic `COR-SEQ-001` `exploited` relationships;
 `COR-SEQ-002` and `COR-SEQ-003` join through derivation lineage, including legitimate
 membership in multiple unmerged roots. Exploit means `observed`, compromise means
 `confirmed`, lateral movement remains `confirmed`, and no automatic transition reaches
-`contained` or `closed`. Configuration does not execute projection or create scene rows,
-and no AI determines membership or state.
+`contained` or `closed`. Execution uses this stored configuration as authoritative, and no AI determines membership or state.
 
 ## Read-only Attack Scene plans
 
@@ -290,4 +289,4 @@ contains relationship membership and bounded spans, endpoint entity membership, 
 relationship-observation lineage, and deterministic observed/confirmed transitions. Roots
 are `COR-SEQ-001` derivations; direct root supports add context and `COR-SEQ-002` and
 `COR-SEQ-003` join through immutable support edges. Shared descendants do not merge root
-scenes. Planning reads existing durable rows only and does not yet write Attack Scene rows.
+scenes. The projection handler persists planner output idempotently into all five Attack Scene tables, atomically with its checkpoint. Existing operator title, summary, and uncertainty are preserved. `contained` and `closed` are never automatically produced or regressed. Operators execute a bounded batch with `correlis-admin attack-scene-projection run --version 1 --limit 100`; no public HTTP API, AI inference, or heuristic clustering participates in scene truth.

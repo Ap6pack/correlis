@@ -16,6 +16,7 @@ from correlis_store import (
     BUILTIN_CORRELATION_RULESET_NAME,
     BUILTIN_CORRELATION_RULESET_VERSION,
     CORRELATION_PROJECTOR_NAME,
+    AttackSceneProjectionHandler,
     AttackSceneProjectionRepository,
     CollectorRepository,
     CorrelationProjectionHandler,
@@ -138,6 +139,10 @@ def build_parser():
     for command in ("show", "policy"):
         x = asp.add_parser(command)
         x.add_argument("--version", required=True)
+    x = asp.add_parser("run")
+    x.add_argument("--version", required=True)
+    x.add_argument("--limit", type=int, default=100)
+    x.add_argument("--retry-failed", action="store_true")
     rp = sub.add_parser("relationship-projection").add_subparsers(dest="cmd", required=True)
     x = rp.add_parser("register")
     x.add_argument("--version", required=True)
@@ -316,6 +321,27 @@ def main(argv=None) -> int:
                     "stored attack scene policy manifest does not match built-in catalog"
                 )
             out = config.policy_manifest
+        elif args.group == "attack-scene-projection" and args.cmd == "run":
+            config = attack_scene_projections.get_projection_config(args.version)
+            if config is None:
+                raise RuntimeError("attack scene projection configuration not found")
+            policy = resolve_attack_scene_policy(config.policy_name, config.policy_version)
+            if (
+                config.policy_manifest_sha256 != policy.manifest_sha256()
+                or config.policy_manifest != policy.manifest
+            ):
+                raise RuntimeError(
+                    "stored attack scene policy manifest does not match built-in catalog"
+                )
+            handler = AttackSceneProjectionHandler(config=config)
+            out = ProjectionRunner(sf).run_batch(
+                handler.projector_identity,
+                handler,
+                limit=args.limit,
+                retry_failed=args.retry_failed,
+            )
+            print(json.dumps(_jsonable(out), sort_keys=True))
+            return 0 if str(out.outcome) in {"advanced", "caught_up"} else 1
         elif args.group == "correlation-projection" and args.cmd == "show":
             config = correlations.get_projection_config(args.version)
             if config is None:
