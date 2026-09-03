@@ -276,6 +276,16 @@ The evaluator is intentionally side-effect free and returns an immutable candida
 ## Durable Attack Scene read model
 
 The durable Attack Scene tables form a tenant- and projection-version-scoped operational read model over the persistent ontology graph. The operator-controlled projector persists the read-only, sequence-bounded planner output in the same transaction as checkpoint advancement. `COR-SEQ-001` deterministically roots separate scenes and immutable root support supplies vulnerability context. `COR-SEQ-002` advances state to `confirmed`; `COR-SEQ-003` extends membership without another automatic transition. Shared descendants can occur in multiple scenes without merging roots. Existing operator title, summary, and uncertainty are preserved, and `contained`/`closed` are neither automatically produced nor regressed. Run one bounded batch with `correlis-admin attack-scene-projection run --version 1 --limit 100`. There is no public HTTP Attack Scene API; neither `SceneBuilder`, AI, heuristic clustering, nor independent relationship discovery participates in durable scene truth.
+
+The `correlis-admin attack-scenes list`, `show`, and `lineage` commands provide the
+read-only operator inspection boundary. All require explicit tenant and scene projection
+versions; list traversal is deterministic `scene_id` keyset pagination. Lineage exposes
+membership identifiers and ordered state transitions without hydrating raw observations,
+evidence, or entity attributes. Operators can follow entity and relationship identifiers
+through the existing dedicated admin commands. These reads neither execute projections nor
+touch checkpoints. Persistent scene HTTP routes remain intentionally absent because
+collector credentials are not analyst/operator authorization; a future HTTP surface requires
+a separate tenant-scoped operator authorization boundary.
 ## Durable Attack Scene policy foundation
 
 The reserved `attack-scene-projection` configuration pins an entity graph, relationship

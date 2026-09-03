@@ -8,8 +8,16 @@ from threading import Barrier, Event
 import pytest
 from alembic import command
 from alembic.config import Config
-from correlis_schema import EntityRef, EntityType, EvidenceRef, EvidenceType, Observation
+from correlis_schema import (
+    EntityRef,
+    EntityType,
+    EvidenceRef,
+    EvidenceType,
+    IncidentState,
+    Observation,
+)
 from correlis_store import (
+    AttackSceneRepository,
     EntityProjectionHandler,
     EntityRepository,
     ImmutableRecordConflict,
@@ -26,6 +34,7 @@ from correlis_store import (
     WriteDisposition,
 )
 from correlis_store.models import (
+    AttackSceneRecord,
     EntityRecord,
     EvidenceRefRecord,
     ObservationEvidenceRecord,
@@ -76,6 +85,62 @@ def evidence(id: str = "ev-1", sha: str = "a" * 64, locator: str | None = None) 
         collected_at=datetime(2026, 1, 1, tzinfo=UTC),
         metadata={"k": "v"},
     )
+
+
+def test_attack_scene_page_postgres_scoping_and_ordering(session_factory):
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    with session_factory.begin() as session:
+        for scene_id, tenant, version, state in (
+            ("scene:c", "tenant-a", "1", "confirmed"),
+            ("scene:a", "tenant-a", "1", "observed"),
+            ("scene:b", "tenant-a", "1", "observed"),
+            ("scene:x", "tenant-b", "1", "observed"),
+            ("scene:y", "tenant-a", "2", "observed"),
+        ):
+            session.add(
+                AttackSceneRecord(
+                    projection_version=version,
+                    tenant_id=tenant,
+                    scene_id=scene_id,
+                    entity_projection_version="1",
+                    relationship_projection_version="1",
+                    title=scene_id,
+                    state=state,
+                    first_seen=now,
+                    last_seen=now,
+                    first_ingest_sequence=1,
+                    last_ingest_sequence=1,
+                    summary=None,
+                    uncertainty_json=[],
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+    repo = AttackSceneRepository(session_factory)
+    first = repo.list_scene_page(projection_version="1", tenant_id="tenant-a", limit=2)
+    assert [scene.scene_id for scene in first.items] == ["scene:a", "scene:b"]
+    assert first.next_after_scene_id == "scene:b"
+    assert first.has_more is True
+    final = repo.list_scene_page(
+        projection_version="1",
+        tenant_id="tenant-a",
+        after_scene_id=first.next_after_scene_id,
+        limit=2,
+    )
+    assert [scene.scene_id for scene in final.items] == ["scene:c"]
+    assert final.next_after_scene_id is None
+    assert final.has_more is False
+    assert [
+        scene.scene_id
+        for scene in repo.list_scene_page(
+            projection_version="1",
+            tenant_id="tenant-a",
+            state=IncidentState.OBSERVED,
+        ).items
+    ] == ["scene:a", "scene:b"]
+    assert repo.get_scene(projection_version="1", tenant_id="tenant-b", scene_id="scene:a") is None
+    assert repo.get_scene(projection_version="2", tenant_id="tenant-a", scene_id="scene:a") is None
 
 
 def observation(

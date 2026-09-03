@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+import pytest
 from correlis_schema import (
     EntityRef,
     EntityType,
     EventClass,
     EvidenceRef,
     EvidenceType,
+    IncidentState,
     Observation,
 )
 from correlis_store import (
@@ -17,7 +19,7 @@ from correlis_store import (
     ProjectionRepository,
     create_session_factory,
 )
-from correlis_store.models import Base
+from correlis_store.models import AttackSceneRecord, Base
 from sqlalchemy import create_engine
 
 from services.api.src.correlis_api import admin
@@ -70,6 +72,123 @@ def obs(id="obs-1", *, type=EntityType.ASSET, label="asset"):
         subject=EntityRef(id="asset-1", type=type, label=label, attributes=attrs),
         evidence=[ev(f"ev-{id}")],
     )
+
+
+def add_attack_scenes(sf):
+    with sf.begin() as session:
+        for scene_id, state in (("scene:a", "observed"), ("scene:b", "confirmed")):
+            session.add(
+                AttackSceneRecord(
+                    projection_version="1",
+                    tenant_id="tenant-a",
+                    scene_id=scene_id,
+                    entity_projection_version="1",
+                    relationship_projection_version="1",
+                    title=f"Scene {scene_id}",
+                    state=state,
+                    first_seen=T,
+                    last_seen=T,
+                    first_ingest_sequence=1,
+                    last_ingest_sequence=1,
+                    summary=None,
+                    uncertainty_json=("bounded",),
+                    created_at=T,
+                    updated_at=T,
+                )
+            )
+
+
+def test_attack_scene_parser_contract():
+    parsed = admin.build_parser().parse_args(
+        ["attack-scenes", "list", "--projection-version", "1", "--tenant-id", "tenant-a"]
+    )
+    assert parsed.limit == 100
+    assert parsed.state is None
+    parsed = admin.build_parser().parse_args(
+        [
+            "attack-scenes",
+            "list",
+            "--projection-version",
+            "1",
+            "--tenant-id",
+            "tenant-a",
+            "--state",
+            "confirmed",
+        ]
+    )
+    assert IncidentState(parsed.state) is IncidentState.CONFIRMED
+    for command in ("list", "show", "lineage"):
+        with pytest.raises(SystemExit):
+            admin.build_parser().parse_args(["attack-scenes", command, "--tenant-id", "tenant-a"])
+        with pytest.raises(SystemExit):
+            admin.build_parser().parse_args(
+                ["attack-scenes", command, "--projection-version", "1"]
+            )
+    with pytest.raises(SystemExit):
+        admin.build_parser().parse_args(
+            [
+                "attack-scenes",
+                "list",
+                "--projection-version",
+                "1",
+                "--tenant-id",
+                "tenant-a",
+                "--state",
+                "invalid",
+            ]
+        )
+
+
+def test_attack_scene_read_cli_paths(tmp_path, monkeypatch, capsys):
+    handle, sf = make_resources(tmp_path, monkeypatch)
+    add_attack_scenes(sf)
+    assert (
+        admin.main(
+            [
+                "attack-scenes",
+                "list",
+                "--projection-version",
+                "1",
+                "--tenant-id",
+                "tenant-a",
+                "--state",
+                "observed",
+                "--after-scene-id",
+                "scene:0",
+                "--limit",
+                "1",
+            ]
+        )
+        == 0
+    )
+    page = json.loads(capsys.readouterr().out)
+    assert page["items"][0]["scene_id"] == "scene:a"
+    assert page["items"][0]["state"] == "observed"
+    assert page["items"][0]["first_seen"] == T.replace(tzinfo=None).isoformat()
+    assert page["items"][0]["uncertainty"] == ["bounded"]
+    assert page["has_more"] is False
+    assert page["next_after_scene_id"] is None
+
+    common = ["--projection-version", "1", "--tenant-id", "tenant-a", "--scene-id", "scene:a"]
+    assert admin.main(["attack-scenes", "show", *common]) == 0
+    assert json.loads(capsys.readouterr().out)["scene_id"] == "scene:a"
+    assert admin.main(["attack-scenes", "lineage", *common]) == 0
+    lineage = json.loads(capsys.readouterr().out)
+    assert lineage["scene"]["scene_id"] == "scene:a"
+    assert lineage["entities"] == lineage["relationships"] == lineage["observations"] == []
+    assert lineage["state_transitions"] == []
+
+    for wrong_scope in (
+        ["--projection-version", "1", "--tenant-id", "tenant-b"],
+        ["--projection-version", "2", "--tenant-id", "tenant-a"],
+    ):
+        for command in ("show", "lineage"):
+            assert (
+                admin.main(["attack-scenes", command, *wrong_scope, "--scene-id", "scene:a"])
+                == 1
+            )
+            assert capsys.readouterr().err.strip() == "attack scene not found"
+    assert handle.disposed is True
 
 
 def test_entity_projection_and_entities_cli_paths(tmp_path, monkeypatch, capsys):

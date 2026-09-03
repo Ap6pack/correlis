@@ -314,6 +314,13 @@ def test_injected_ontology_registry_is_returned_by_endpoint():
         assert client.get("/api/v1/ontology").json()["version"] == CORE_ONTOLOGY.version
 
 
+def test_persistent_attack_scenes_are_not_exposed_over_http():
+    app = create_app(api_settings())
+    paths = {route.path for route in app.routes if hasattr(route, "path")}
+    assert "/api/v1/attack-scenes" not in paths
+    assert "/api/v1/scenes" not in paths
+
+
 def test_collector_me_authentication_success_and_failure(tmp_path):
     from correlis_store import CollectorRepository
 
