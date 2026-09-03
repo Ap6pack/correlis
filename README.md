@@ -417,6 +417,36 @@ lateral movement remains `confirmed`; `contained` and `closed` are never automat
 
 The `run` command executes one bounded batch using only stored component versions and policy configuration; it never starts upstream projectors automatically.
 
+### Read-only Attack Scene administration
+
+Operators with direct access to the Correlis database environment can inspect persistent
+Attack Scenes through the admin CLI. Every read requires explicit tenant and projection
+version scopes, and listing uses deterministic `scene_id` keyset pagination. Detail and
+lineage reads are read-only and do not run projectors or advance checkpoints:
+
+```bash
+correlis-admin attack-scenes list \
+  --projection-version 1 \
+  --tenant-id tenant-a
+
+correlis-admin attack-scenes show \
+  --projection-version 1 \
+  --tenant-id tenant-a \
+  --scene-id scene:<relationship-id>
+
+correlis-admin attack-scenes lineage \
+  --projection-version 1 \
+  --tenant-id tenant-a \
+  --scene-id scene:<relationship-id>
+```
+
+Scene lineage returns only durable scene membership and state transitions; it does not
+expand raw observation payloads, evidence, entity attributes, credentials, or correlation
+manifests. Relationship and entity details remain available through their existing admin
+commands. Persistent Attack Scenes are not exposed through HTTP: collector credentials are
+not analyst/operator authorization. A future change will introduce a separate tenant-scoped
+operator authorization boundary before HTTP scene endpoints are added.
+
 ### Read-only Attack Scene membership planning
 
 Attack Scene membership can be planned as a read-only snapshot bounded by durable ingest

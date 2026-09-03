@@ -269,6 +269,16 @@ Relationship lineage reads now include immutable derivation, support, and eviden
 ### Durable Attack Scene storage
 
 `attack_scenes` stores current, versioned, tenant-scoped aggregate state. Its entity and relationship membership tables hold foreign-key references to the canonical projected graph and intentionally contain no copied attributes, evidence, endpoints, rule data, or derivation lineage. Observation membership is ordered by `(ingest_sequence, observation_id)`; event time records source chronology but is not a processing cursor. `attack_scene_state_transitions` is append-only and records actual state changes only. The operator-controlled scene projector persists planner output atomically with checkpoint advancement; there is no grouping heuristic or AI truth/state decision. The in-memory `SceneBuilder` remains a demo/compatibility representation, while durable correlation remains authoritative.
+
+Persistent rows can be inspected read-only with `correlis-admin attack-scenes list`,
+`show`, and `lineage`. Each query is explicitly tenant- and projection-version-scoped;
+listing orders by `scene_id` and uses keyset pagination. Lineage returns only scene,
+entity, relationship, observation-membership, and ordered state-transition contracts. It
+does not expand raw observation payloads, evidence locators or bytes, entity attributes,
+credentials, or manifests; existing entity and relationship admin commands provide their
+own detail surfaces. No persistent Attack Scene HTTP route exists. Collector credentials
+must not be interpreted as operator authorization, and HTTP exposure awaits a separate
+tenant-scoped operator authorization boundary.
 ## Attack Scene projection configuration
 
 `attack_scene_projection_configs` is an immutable per-projector-version binding to exact

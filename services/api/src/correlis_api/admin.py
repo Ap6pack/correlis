@@ -8,7 +8,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from correlis_schema import EntityType, ProvenanceClass, RelationshipType
+from correlis_schema import EntityType, IncidentState, ProvenanceClass, RelationshipType
 from correlis_store import (
     ATTACK_SCENE_PROJECTOR_NAME,
     BUILTIN_ATTACK_SCENE_POLICY_NAME,
@@ -18,6 +18,7 @@ from correlis_store import (
     CORRELATION_PROJECTOR_NAME,
     AttackSceneProjectionHandler,
     AttackSceneProjectionRepository,
+    AttackSceneRepository,
     CollectorRepository,
     CorrelationProjectionHandler,
     CorrelationRepository,
@@ -48,6 +49,8 @@ def _jsonable(v):
     if isinstance(v, StrEnum):
         return str(v)
     if isinstance(v, list):
+        return [_jsonable(x) for x in v]
+    if isinstance(v, tuple):
         return [_jsonable(x) for x in v]
     if isinstance(v, dict):
         return {k: _jsonable(val) for k, val in v.items()}
@@ -200,6 +203,18 @@ def build_parser():
     x.add_argument("--relationship-id", required=True)
     x.add_argument("--observation-limit", type=int, default=100)
     x.add_argument("--evidence-limit", type=int, default=100)
+    scenes = sub.add_parser("attack-scenes").add_subparsers(dest="cmd", required=True)
+    x = scenes.add_parser("list")
+    x.add_argument("--projection-version", required=True)
+    x.add_argument("--tenant-id", required=True)
+    x.add_argument("--state", choices=[state.value for state in IncidentState])
+    x.add_argument("--after-scene-id")
+    x.add_argument("--limit", type=int, default=100)
+    for command in ("show", "lineage"):
+        x = scenes.add_parser(command)
+        x.add_argument("--projection-version", required=True)
+        x.add_argument("--tenant-id", required=True)
+        x.add_argument("--scene-id", required=True)
     return p
 
 
@@ -214,6 +229,7 @@ def main(argv=None) -> int:
         relationships = RelationshipRepository(sf)
         correlations = CorrelationRepository(sf)
         attack_scene_projections = AttackSceneProjectionRepository(sf)
+        attack_scenes = AttackSceneRepository(sf)
         if args.group == "collectors" and args.cmd == "create":
             out = r.create_collector(
                 tenant_id=args.tenant_id,
@@ -476,6 +492,31 @@ def main(argv=None) -> int:
             )
             if out is None:
                 raise RuntimeError("relationship not found")
+        elif args.group == "attack-scenes" and args.cmd == "list":
+            state = IncidentState(args.state) if args.state else None
+            out = attack_scenes.list_scene_page(
+                projection_version=args.projection_version,
+                tenant_id=args.tenant_id,
+                state=state,
+                after_scene_id=args.after_scene_id,
+                limit=args.limit,
+            )
+        elif args.group == "attack-scenes" and args.cmd == "show":
+            out = attack_scenes.get_scene(
+                projection_version=args.projection_version,
+                tenant_id=args.tenant_id,
+                scene_id=args.scene_id,
+            )
+            if out is None:
+                raise RuntimeError("attack scene not found")
+        elif args.group == "attack-scenes" and args.cmd == "lineage":
+            out = attack_scenes.get_lineage(
+                projection_version=args.projection_version,
+                tenant_id=args.tenant_id,
+                scene_id=args.scene_id,
+            )
+            if out is None:
+                raise RuntimeError("attack scene not found")
         else:
             raise RuntimeError("unsupported command")
         print(json.dumps(_jsonable(out), sort_keys=True))

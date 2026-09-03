@@ -26,6 +26,13 @@ class ProjectedAttackScene:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectedAttackScenePage:
+    items: tuple[ProjectedAttackScene, ...]
+    next_after_scene_id: str | None
+    has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
 class AttackSceneEntityMembership:
     projection_version: str
     tenant_id: str

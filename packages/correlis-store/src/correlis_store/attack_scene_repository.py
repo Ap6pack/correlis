@@ -14,6 +14,7 @@ from .attack_scenes import (
     AttackSceneRelationshipMembership,
     AttackSceneStateTransition,
     ProjectedAttackScene,
+    ProjectedAttackScenePage,
 )
 from .models import (
     AttackSceneEntityRecord,
@@ -86,6 +87,49 @@ class AttackSceneRepository:
     ) -> tuple[ProjectedAttackScene, ...]:
         if not 1 <= limit <= 500:
             raise ValueError("limit must be between 1 and 500")
+        return self._list_scenes(
+            projection_version=projection_version,
+            tenant_id=tenant_id,
+            state=state,
+            after_scene_id=after_scene_id,
+            limit=limit,
+        )
+
+    def list_scene_page(
+        self,
+        *,
+        projection_version: str,
+        tenant_id: str,
+        state: IncidentState | None = None,
+        after_scene_id: str | None = None,
+        limit: int = 100,
+    ) -> ProjectedAttackScenePage:
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        rows = self._list_scenes(
+            projection_version=projection_version,
+            tenant_id=tenant_id,
+            state=state,
+            after_scene_id=after_scene_id,
+            limit=limit + 1,
+        )
+        has_more = len(rows) > limit
+        items = rows[:limit]
+        return ProjectedAttackScenePage(
+            items=items,
+            next_after_scene_id=items[-1].scene_id if has_more else None,
+            has_more=has_more,
+        )
+
+    def _list_scenes(
+        self,
+        *,
+        projection_version: str,
+        tenant_id: str,
+        state: IncidentState | None,
+        after_scene_id: str | None,
+        limit: int,
+    ) -> tuple[ProjectedAttackScene, ...]:
         stmt = select(AttackSceneRecord).where(
             AttackSceneRecord.projection_version == projection_version,
             AttackSceneRecord.tenant_id == tenant_id,

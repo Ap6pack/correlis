@@ -9,10 +9,12 @@ from correlis_schema import (
     EventClass,
     EvidenceRef,
     EvidenceType,
+    IncidentState,
     Observation,
     Severity,
 )
 from correlis_store import (
+    AttackSceneRepository,
     ImmutableRecordConflict,
     ObservationPageAnchor,
     ObservationQueryFilters,
@@ -22,7 +24,12 @@ from correlis_store import (
     entity_projector_identity,
 )
 from correlis_store.hashing import canonical_model_sha256
-from correlis_store.models import Base, ObservationEvidenceRecord, ObservationRecord
+from correlis_store.models import (
+    AttackSceneRecord,
+    Base,
+    ObservationEvidenceRecord,
+    ObservationRecord,
+)
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -70,6 +77,70 @@ def session_factory(tmp_path):
 
 def test_canonical_hashing_is_deterministic():
     assert canonical_model_sha256(evidence()) == canonical_model_sha256(evidence())
+
+
+def _attack_scene(scene_id: str, *, tenant: str = "tenant-a", version: str = "1", state="observed"):
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return AttackSceneRecord(
+        projection_version=version,
+        tenant_id=tenant,
+        scene_id=scene_id,
+        entity_projection_version="1",
+        relationship_projection_version="1",
+        title=f"Scene {scene_id}",
+        state=state,
+        first_seen=now,
+        last_seen=now,
+        first_ingest_sequence=1,
+        last_ingest_sequence=1,
+        summary=None,
+        uncertainty_json=[],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def test_attack_scene_page_contract_and_scoping(session_factory):
+    repo = AttackSceneRepository(session_factory)
+    assert repo.list_scene_page(projection_version="1", tenant_id="tenant-a").items == ()
+    with session_factory() as session:
+        session.add_all(
+            [
+                _attack_scene("scene:a"),
+                _attack_scene("scene:b"),
+                _attack_scene("scene:c", state="confirmed"),
+                _attack_scene("scene:x", tenant="tenant-b"),
+                _attack_scene("scene:y", version="2"),
+            ]
+        )
+        session.commit()
+
+    first = repo.list_scene_page(projection_version="1", tenant_id="tenant-a", limit=2)
+    assert [item.scene_id for item in first.items] == ["scene:a", "scene:b"]
+    assert first.has_more is True
+    assert first.next_after_scene_id == "scene:b"
+    final = repo.list_scene_page(
+        projection_version="1",
+        tenant_id="tenant-a",
+        after_scene_id=first.next_after_scene_id,
+        limit=2,
+    )
+    assert [item.scene_id for item in final.items] == ["scene:c"]
+    assert final.has_more is False
+    assert final.next_after_scene_id is None
+    assert not ({item.scene_id for item in first.items} & {item.scene_id for item in final.items})
+    observed = repo.list_scene_page(
+        projection_version="1", tenant_id="tenant-a", state=IncidentState.OBSERVED
+    )
+    assert [item.scene_id for item in observed.items] == ["scene:a", "scene:b"]
+    tenant_b = repo.list_scenes(projection_version="1", tenant_id="tenant-b")
+    version_2 = repo.list_scenes(projection_version="2", tenant_id="tenant-a")
+    assert [item.scene_id for item in tenant_b] == ["scene:x"]
+    assert [item.scene_id for item in version_2] == ["scene:y"]
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        repo.list_scene_page(projection_version="1", tenant_id="tenant-a", limit=0)
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        repo.list_scene_page(projection_version="1", tenant_id="tenant-a", limit=501)
 
 
 def test_observation_creation_and_round_trip(session_factory):

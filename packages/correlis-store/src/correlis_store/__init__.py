@@ -38,6 +38,7 @@ from .attack_scenes import (
     AttackSceneRelationshipMembership,
     AttackSceneStateTransition,
     ProjectedAttackScene,
+    ProjectedAttackScenePage,
 )
 from .collector_auth import CollectorAuthenticator, is_collector_principal_active
 from .collector_repository import (
@@ -207,6 +208,7 @@ __all__ = [
     "AttackSceneRepository",
     "AttackSceneStateTransition",
     "ProjectedAttackScene",
+    "ProjectedAttackScenePage",
     "EntityEvidenceLineage",
     "EntityIdentityClaim",
     "EntityLineage",
